@@ -387,7 +387,7 @@ static GFont prv_over_numeric_font(void) {
 
 static GFont prv_vertrek_numeric_font(void) {
   /* Emery/Time 2: VERTREK smaller than OVER, fully contained in cream */
-  return fonts_get_system_font(prv_countdown_is_large() ? FONT_KEY_LECO_32_BOLD_NUMBERS : FONT_KEY_LECO_20_BOLD_NUMBERS);
+  return fonts_get_system_font(prv_countdown_is_large() ? FONT_KEY_LECO_26_BOLD_NUMBERS_AM_PM : FONT_KEY_LECO_20_BOLD_NUMBERS);
 }
 
 static GFont prv_over_text_font(void) {
@@ -540,9 +540,10 @@ static void prv_layout_countdown_clocks(bool hero) {
   if (remain < 40) remain = 40;
   
   /* Pin VERTREK from cream_bottom, OVER gets remaining height above it */
-  const int min_vtk_h = large ? 32 : 24;
+  /* LECO_26 needs exactly 34px height to avoid clipping footer */
+  const int min_vtk_h = large ? 34 : 24;
   const int min_over_h = large ? 52 : 32;
-  int vtk_clock_h = large ? 32 : 24;
+  int vtk_clock_h = large ? 34 : 24;
   
   /* VERTREK clock sits just above the blue footer */
   int vtk_clock_y = cream_bottom - vtk_clock_h;
