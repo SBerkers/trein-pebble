@@ -164,7 +164,8 @@ function addFavouriteFromWatch(code, name) {
   sendFavouritesToWatch();
 }
 var lastStartCode = "", lastDestCode = "", stationCoords = {}, lastRouted = null, cachedDurationMin = null, orsInFlight = false, tripsSentOnce = false, routeTickMissedDest = false;
-var lastGps = null, tripsInFlight = false, pendingRouteTick = null, routeAfterTrips = false;
+var lastRouteGps = null, lastStationGps = null, tripsInFlight = false, pendingRouteTick = null, routeAfterTrips = false;
+var lastSentDelay = null;
 function haversineMeters(a, b, c, d) {
   var P = Math.PI / 180, dLat = (c - a) * P, dLon = (d - b) * P;
   var x = Math.sin(dLat / 2), y = Math.sin(dLon / 2);
@@ -287,7 +288,7 @@ function fetchOrsDuration(lat, lng, dest, profile, callback, isRetry) {
   xhr.send(JSON.stringify({ coordinates: [[lng, lat], [dest.lng, dest.lat]] }));
 }
 function runRouteFrom(lat, lng, vervoer, force) {
-  lastGps = { lat: lat, lng: lng };
+  lastRouteGps = { lat: lat, lng: lng };
   var dest = coordsFor(lastStartCode);
   if (!dest) {
     routeTickMissedDest = true;
@@ -331,7 +332,7 @@ function handleRouteTick(vervoer, force) {
     return;
   }
   function go(lat, lng) {
-    lastGps = { lat: lat, lng: lng };
+    lastRouteGps = { lat: lat, lng: lng };
     runRouteFrom(lat, lng, vervoer, !!force);
   }
   function onFail(attempt) {
@@ -339,8 +340,8 @@ function handleRouteTick(vervoer, force) {
       setTimeout(function() { tryPos(attempt + 1); }, 500);
       return;
     }
-    if (lastGps) {
-      runRouteFrom(lastGps.lat, lastGps.lng, vervoer, true);
+    if (lastRouteGps) {
+      runRouteFrom(lastRouteGps.lat, lastRouteGps.lng, vervoer, true);
       return;
     }
     if (!coordsFor(lastStartCode)) {
@@ -351,14 +352,14 @@ function handleRouteTick(vervoer, force) {
   }
   function tryPos(attempt) {
     if (typeof Pebble !== "undefined" && Pebble.platform === "pypkjs") {
-      var g = lastGps || { lat: 51.58719, lng: 4.78322 };
+      var g = lastRouteGps || { lat: 51.58719, lng: 4.78322 };
       go(g.lat, g.lng);
       return;
     }
     navigator.geolocation.getCurrentPosition(
       function(pos) { go(pos.coords.latitude, pos.coords.longitude); },
       function() { onFail(attempt); },
-      { timeout: 8000, maximumAge: 60000, enableHighAccuracy: false }
+      { timeout: 8000, maximumAge: 60000, enableHighAccuracy: true }
     );
   }
   tryPos(0);
@@ -525,7 +526,7 @@ function requestLocationAndFetchStations() {
 function locationSuccess(pos) {
   var lat = pos.coords.latitude;
   var lng = pos.coords.longitude;
-  lastGps = { lat: lat, lng: lng };
+  lastStationGps = { lat: lat, lng: lng };
   fetchNearbyStations(lat, lng);
 }
 
@@ -934,6 +935,17 @@ function processTripData(data) {
     var originArrivalIso = origin0.actualArrivalDateTime || origin0.plannedArrivalDateTime || "";
     var originArrivalEpoch = convertIsoDateToEpoch(originArrivalIso);
     if (!originArrivalEpoch) originArrivalEpoch = plannedDepartureTimeEpoch;
+    
+    if (sendIndex === 0) {
+      var delayKey = actualDepartureTimeEpoch;
+      if (lastSentDelay !== null && lastSentDelay !== delayKey && tripDelay !== "On time") {
+        if (typeof Pebble !== "undefined" && Pebble.vibrateOnce) {
+          Pebble.vibrateOnce();
+        }
+      }
+      lastSentDelay = delayKey;
+    }
+    
     tripsSentOnce = true;
     } catch (err) {
       console.log("trip parse fail: " + err);
@@ -972,7 +984,7 @@ function processTripData(data) {
 
 function fetchNearbyStations(lat, lng) {
   if (lat != null && lng != null && !isNaN(lat) && !isNaN(lng)) {
-    lastGps = { lat: lat, lng: lng };
+    lastStationGps = { lat: lat, lng: lng };
   }
   if (typeof Pebble !== "undefined" && Pebble.platform === "pypkjs") {
     processStationData({ payload: [
