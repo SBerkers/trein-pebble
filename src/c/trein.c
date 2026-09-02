@@ -106,20 +106,16 @@ static void prv_bg_black_update_proc(Layer *layer, GContext *ctx) {
 static void prv_platform_border_update_proc(Layer *layer, GContext *ctx) {
   GRect bounds = layer_get_bounds(layer);
 
-  // Fill with white background
+  #ifdef PBL_COLOR
+  graphics_context_set_fill_color(ctx, GColorPictonBlue);
+  #else
   graphics_context_set_fill_color(ctx, GColorWhite);
+  #endif
   graphics_fill_rect(ctx, bounds, 0, GCornerNone);
 
-  // Draw blue border
-  graphics_context_set_stroke_color(ctx, GColorOxfordBlue);
+  graphics_context_set_stroke_color(ctx, GColorBlack);
   graphics_context_set_stroke_width(ctx, 2);
   graphics_draw_rect(ctx, bounds);
-
-  // Draw small blue square in top-left corner touching the border
-  // Size proportional to the box size
-  int square_size = (bounds.size.w == 24) ? 6 : 8;
-  graphics_context_set_fill_color(ctx, GColorOxfordBlue);
-  graphics_fill_rect(ctx, GRect(1, 1, square_size, square_size), 0, GCornerNone);
 }
 
 // Draw animated clock spinner
@@ -425,7 +421,7 @@ static GFont prv_over_numeric_font(void) {
 }
 
 static GFont prv_vertrek_numeric_font(void) {
-  return fonts_get_system_font(prv_countdown_is_large() ? FONT_KEY_LECO_28_LIGHT_NUMBERS : FONT_KEY_LECO_20_BOLD_NUMBERS);
+  return fonts_get_system_font(prv_countdown_is_large() ? FONT_KEY_LECO_32_BOLD_NUMBERS : FONT_KEY_LECO_20_BOLD_NUMBERS);
 }
 
 static GFont prv_over_text_font(void) {
@@ -663,7 +659,7 @@ static void prv_countdown_timer_callback(void *data) {
       over_fg = GColorWhite;
     } else if (over_remain <= 120) {
       band = GColorYellow;
-      over_fg = GColorBlack;
+      over_fg = GColorYellow;
     } else {
       band = GColorYellow;
       over_fg = GColorIslamicGreen;
@@ -2365,7 +2361,7 @@ static bool prv_cd_alive(void *p) {
   text_layer_set_font(s_app.countdown_ui.platform_number_layer, fonts_get_system_font(is_large_display ? FONT_KEY_GOTHIC_18_BOLD : FONT_KEY_GOTHIC_14_BOLD));
   text_layer_set_text_alignment(s_app.countdown_ui.platform_number_layer, GTextAlignmentCenter);
   text_layer_set_background_color(s_app.countdown_ui.platform_number_layer, GColorClear);
-  text_layer_set_text_color(s_app.countdown_ui.platform_number_layer, GColorOxfordBlue);
+  text_layer_set_text_color(s_app.countdown_ui.platform_number_layer, GColorBlack);
   if (s_app.countdown_ui.platform_number_layer) layer_add_child(window_layer, text_layer_get_layer(s_app.countdown_ui.platform_number_layer));
 
   s_app.countdown_ui.over_label_layer = text_layer_create(GRect(x_pad, over_lab_y, lab_w, lab_h));

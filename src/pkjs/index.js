@@ -234,11 +234,16 @@ function sendRouteError(code) {
     "ROUTE_ERROR": code
   }, function() {}, function() {});
 }
+var orsPendingCallbacks = [];
 function fetchOrsDuration(lat, lng, dest, profile, callback, isRetry) {
   var key = trimKey(getOrsKey());
   if (!key || !dest) { callback(null, key ? 2 : 1); return; }
   if (orsInFlight && !isRetry) {
-    if (cachedDurationMin != null) callback(cachedDurationMin, 0);
+    if (cachedDurationMin != null) {
+      callback(cachedDurationMin, 0);
+    } else {
+      orsPendingCallbacks.push(callback);
+    }
     return;
   }
   orsInFlight = true;
@@ -257,6 +262,10 @@ function fetchOrsDuration(lat, lng, dest, profile, callback, isRetry) {
         return;
       }
       callback(null, 2);
+      while (orsPendingCallbacks.length > 0) {
+        var cb = orsPendingCallbacks.shift();
+        cb(null, 2);
+      }
       return;
     }
     try {
@@ -265,6 +274,10 @@ function fetchOrsDuration(lat, lng, dest, profile, callback, isRetry) {
         lastRouted = { lat: lat, lng: lng };
         cachedDurationMin = Math.max(0, Math.round(sec / 60));
         callback(cachedDurationMin, 0);
+        while (orsPendingCallbacks.length > 0) {
+          var cb = orsPendingCallbacks.shift();
+          cb(cachedDurationMin, 0);
+        }
         return;
       }
     } catch (e) {
@@ -275,6 +288,10 @@ function fetchOrsDuration(lat, lng, dest, profile, callback, isRetry) {
       return;
     }
     callback(null, 2);
+    while (orsPendingCallbacks.length > 0) {
+      var cb = orsPendingCallbacks.shift();
+      cb(null, 2);
+    }
   };
   xhr.onerror = xhr.ontimeout = function() {
     orsInFlight = false;
@@ -284,6 +301,10 @@ function fetchOrsDuration(lat, lng, dest, profile, callback, isRetry) {
       return;
     }
     callback(null, 2);
+    while (orsPendingCallbacks.length > 0) {
+      var cb = orsPendingCallbacks.shift();
+      cb(null, 2);
+    }
   };
   xhr.send(JSON.stringify({ coordinates: [[lng, lat], [dest.lng, dest.lat]] }));
 }
@@ -293,6 +314,7 @@ function runRouteFrom(lat, lng, vervoer, force) {
   if (!dest) {
     routeTickMissedDest = true;
     lookupStartCoords(lastStartCode);
+    sendRouteError(2);
     return;
   }
   routeTickMissedDest = false;
@@ -905,7 +927,7 @@ function processTripData(data) {
     var plannedDepartureTime = firstLeg.origin.plannedDateTime;
     var actualArrivalTime = lastLeg.destination.actualDateTime;
     var plannedArrivalTime = lastLeg.destination.plannedDateTime;
-    var tripDelay = "On time";
+    var tripDelay = "";
     if (actualDepartureTime === undefined) {
       tripDelay = "Cancelled";
       actualDepartureTime = lastLeg.destination.plannedDateTime;
