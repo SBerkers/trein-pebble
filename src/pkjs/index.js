@@ -340,23 +340,31 @@ function runRouteFrom(lat, lng, vervoer, force) {
   lastRouteGps = { lat: lat, lng: lng };
   var dest = coordsFor(lastStartCode);
   if (!dest) {
-    console.log("runRouteFrom: missing coords for " + lastStartCode + ", looking up");
+    console.log("runRouteFrom: missing VAN coords for " + lastStartCode + ", looking up");
     routeTickMissedDest = true;
     lookupStartCoords(lastStartCode);
     return;
   }
   routeTickMissedDest = false;
-  if (haversineMeters(lat, lng, dest.lat, dest.lng) <= 150) {
+  var distM = haversineMeters(lat, lng, dest.lat, dest.lng);
+  if (distM <= 150) {
+    console.log("runRouteFrom: at station " + distM + "m, walk=0");
     cachedDurationMin = 0;
     sendRouteToWatch(0, true);
     return;
   }
-  if (!getOrsKey()) { sendRouteError(1); return; }
+  if (!getOrsKey()) {
+    console.log("runRouteFrom: no ORS key");
+    sendRouteError(1);
+    return;
+  }
   var moved = !lastRouted || haversineMeters(lat, lng, lastRouted.lat, lastRouted.lng) > 80;
   if (!force && !moved && cachedDurationMin != null) {
+    console.log("runRouteFrom: cached " + cachedDurationMin + " min, moved=" + moved);
     sendRouteToWatch(cachedDurationMin, false);
     return;
   }
+  console.log("runRouteFrom: calling ORS " + (vervoer === 1 ? "bike" : "walk") + " dist=" + distM + "m");
   fetchOrsDuration(lat, lng, dest, vervoer === 1 ? "cycling-regular" : "foot-walking", function(mins, err) {
     if (mins != null) sendRouteToWatch(mins, false);
     else if (err) sendRouteError(err);
@@ -378,6 +386,7 @@ function flushPendingRoute() {
 }
 function handleRouteTick(vervoer, force) {
   if (tripsInFlight) {
+    console.log("handleRouteTick deferred tripsInFlight=1");
     pendingRouteTick = { vervoer: vervoer, force: !!force };
     return;
   }
@@ -398,7 +407,7 @@ function handleRouteTick(vervoer, force) {
       routeTickMissedDest = true;
       lookupStartCoords(lastStartCode);
     }
-    sendRouteError(2);
+    console.log("handleRouteTick GPS fail, no fallback");
   }
   function tryPos(attempt) {
     if (typeof Pebble !== "undefined" && Pebble.platform === "pypkjs") {
@@ -780,6 +789,8 @@ function calculateDuration(departureDateTime, arrivalDateTime) {
 }
 
 function sendLegData(trips) {
+  flushPendingRoute();
+  
   var legQueue = [];
 
   for (var t = 0; t < trips.length; t++) {
