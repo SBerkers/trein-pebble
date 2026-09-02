@@ -35,6 +35,7 @@ static void prv_loading_fail_timeout(void *data);
 static void prv_loading_show_timeout(void *data);
 static void prv_arm_loading_fail(void);
 static void prv_pop_alpha_timeout(void *data);
+static void prv_pop_stations_timeout(void *data);
 static void prv_noop_click_config(void *context);
 static void prv_present_countdown(void);
 static void prv_countdown_click_config_provider(void *context);
@@ -118,75 +119,38 @@ static void prv_platform_border_update_proc(Layer *layer, GContext *ctx) {
   graphics_draw_rect(ctx, bounds);
 }
 
-// Draw animated clock spinner
+// Draw rotating arc spinner (white on OxfordBlue background)
 static void prv_spinner_layer_update_proc(Layer *layer, GContext *ctx) {
   GRect bounds = layer_get_bounds(layer);
   GPoint center = grect_center_point(&bounds);
-
-  // Scale clock to fit the layer (with some padding)
-  const int clock_radius = (bounds.size.w < bounds.size.h ? bounds.size.w : bounds.size.h) / 2 - 10;
-  const int minute_hand_length = clock_radius - 5;
-  const int hour_hand_length = clock_radius * 3 / 5;
-  const int tick_length = clock_radius / 6;
-
-  // Draw clock circle
+  
+  const int arc_radius = (bounds.size.w < bounds.size.h ? bounds.size.w : bounds.size.h) / 2 - 4;
+  const int arc_thickness = 3;
+  
+  // Draw rotating arc (270 degrees, rotates with spinner_angle)
+  int32_t start_angle = TRIG_MAX_ANGLE * s_app.state.spinner_angle / 360;
+  int32_t end_angle = start_angle + (TRIG_MAX_ANGLE * 270 / 360);
+  
   #ifdef PBL_COLOR
-  graphics_context_set_stroke_color(ctx, GColorOxfordBlue);
-  graphics_context_set_fill_color(ctx, GColorWhite);
-  #else
-  graphics_context_set_stroke_color(ctx, GColorBlack);
-  graphics_context_set_fill_color(ctx, GColorWhite);
-  #endif
-  graphics_context_set_stroke_width(ctx, 4);
-  graphics_fill_circle(ctx, center, clock_radius);
-  graphics_draw_circle(ctx, center, clock_radius);
-
-  // Draw clock tick marks (12, 3, 6, 9)
-  for (int i = 0; i < 4; i++) {
-    int32_t angle = TRIG_MAX_ANGLE * i / 4;
-    GPoint outer = gpoint_from_polar(GRect(center.x - clock_radius, center.y - clock_radius,
-                                           clock_radius * 2, clock_radius * 2),
-                                    GOvalScaleModeFitCircle, angle);
-    GPoint inner = {
-      .x = center.x + ((outer.x - center.x) * (clock_radius - tick_length)) / clock_radius,
-      .y = center.y + ((outer.y - center.y) * (clock_radius - tick_length)) / clock_radius
-    };
-    graphics_context_set_stroke_width(ctx, 3);
-    graphics_draw_line(ctx, inner, outer);
-  }
-
-  // Calculate hand angles based on spinner_angle
-  int32_t minute_angle = (TRIG_MAX_ANGLE * s_app.state.spinner_angle / 360) - TRIG_MAX_ANGLE / 4;
-  int32_t hour_angle = (TRIG_MAX_ANGLE * (s_app.state.spinner_angle / 12) / 360) - TRIG_MAX_ANGLE / 4;
-
-  // Draw hour hand (shorter, thicker)
-  GPoint hour_end = {
-    .x = center.x + (sin_lookup(hour_angle) * hour_hand_length / TRIG_MAX_RATIO),
-    .y = center.y - (cos_lookup(hour_angle) * hour_hand_length / TRIG_MAX_RATIO)
-  };
-  graphics_context_set_stroke_width(ctx, clock_radius / 10);
-  #ifdef PBL_COLOR
-  graphics_context_set_stroke_color(ctx, GColorOxfordBlue);
+  graphics_context_set_stroke_color(ctx, GColorWhite);
   #else
   graphics_context_set_stroke_color(ctx, GColorBlack);
   #endif
-  graphics_draw_line(ctx, center, hour_end);
+  graphics_context_set_stroke_width(ctx, arc_thickness);
+  graphics_draw_arc(ctx, GRect(center.x - arc_radius, center.y - arc_radius, 
+                                arc_radius * 2, arc_radius * 2),
+                    GOvalScaleModeFitCircle, start_angle, end_angle);
+}
 
-  // Draw minute hand (longer, thinner)
-  GPoint minute_end = {
-    .x = center.x + (sin_lookup(minute_angle) * minute_hand_length / TRIG_MAX_RATIO),
-    .y = center.y - (cos_lookup(minute_angle) * minute_hand_length / TRIG_MAX_RATIO)
-  };
-  graphics_context_set_stroke_width(ctx, clock_radius / 15);
-  graphics_draw_line(ctx, center, minute_end);
-
-  // Draw center dot
+// Draw full-screen OxfordBlue overlay background
+static void prv_loading_bg_update_proc(Layer *layer, GContext *ctx) {
+  GRect bounds = layer_get_bounds(layer);
   #ifdef PBL_COLOR
   graphics_context_set_fill_color(ctx, GColorOxfordBlue);
   #else
   graphics_context_set_fill_color(ctx, GColorBlack);
   #endif
-  graphics_fill_circle(ctx, center, clock_radius / 8);
+  graphics_fill_rect(ctx, bounds, 0, GCornerNone);
 }
 
 // Spinner animation timer callback
@@ -1715,6 +1679,14 @@ static void prv_destroy_loading_ui(void) {
     app_timer_cancel(s_app.state.spinner_timer);
     s_app.state.spinner_timer = NULL;
   }
+  if (s_app.loading_ui.title_layer) {
+    text_layer_destroy(s_app.loading_ui.title_layer);
+    s_app.loading_ui.title_layer = NULL;
+  }
+  if (s_app.loading_ui.journey_layer) {
+    text_layer_destroy(s_app.loading_ui.journey_layer);
+    s_app.loading_ui.journey_layer = NULL;
+  }
   if (s_app.loading_ui.status_layer) {
     text_layer_destroy(s_app.loading_ui.status_layer);
     s_app.loading_ui.status_layer = NULL;
@@ -1722,6 +1694,10 @@ static void prv_destroy_loading_ui(void) {
   if (s_app.loading_ui.spinner_layer) {
     layer_destroy(s_app.loading_ui.spinner_layer);
     s_app.loading_ui.spinner_layer = NULL;
+  }
+  if (s_app.loading_ui.bg_layer) {
+    layer_destroy(s_app.loading_ui.bg_layer);
+    s_app.loading_ui.bg_layer = NULL;
   }
 }
 
@@ -1746,24 +1722,63 @@ static void prv_push_trips_loading(void) {
   }
   prv_destroy_loading_ui();
 
-  const int spinner_size = 40;
-  int spinner_y = (bounds.size.h - spinner_size) / 2 - 8;
-  if (spinner_y < 4) spinner_y = 4;
+  /* Full OxfordBlue overlay covering entire screen */
+  s_app.loading_ui.bg_layer = layer_create(bounds);
+  if (s_app.loading_ui.bg_layer) {
+    layer_set_update_proc(s_app.loading_ui.bg_layer, prv_loading_bg_update_proc);
+    layer_add_child(root, s_app.loading_ui.bg_layer);
+  }
+
+  const int top_margin = 40;
+  const int line_height = 24;
+  int y = top_margin;
+
+  /* Title "Trein" */
+  s_app.loading_ui.title_layer = text_layer_create(GRect(0, y, bounds.size.w, line_height));
+  if (s_app.loading_ui.title_layer) {
+    text_layer_set_font(s_app.loading_ui.title_layer, fonts_get_system_font(FONT_KEY_GOTHIC_24_BOLD));
+    text_layer_set_text_alignment(s_app.loading_ui.title_layer, GTextAlignmentCenter);
+    text_layer_set_background_color(s_app.loading_ui.title_layer, GColorClear);
+    text_layer_set_text_color(s_app.loading_ui.title_layer, GColorWhite);
+    text_layer_set_text(s_app.loading_ui.title_layer, "Trein");
+    layer_add_child(root, text_layer_get_layer(s_app.loading_ui.title_layer));
+  }
+  y += line_height + 4;
+
+  /* Journey: "Start → Dest" */
+  static char journey_text[MAX_STATION_NAME_LENGTH * 2 + 4];
+  snprintf(journey_text, sizeof(journey_text), "%s → %s",
+           s_app.journey.start_station_name[0] ? s_app.journey.start_station_name : "?",
+           s_app.journey.dest_station_name[0] ? s_app.journey.dest_station_name : "?");
+  s_app.loading_ui.journey_layer = text_layer_create(GRect(4, y, bounds.size.w - 8, line_height));
+  if (s_app.loading_ui.journey_layer) {
+    text_layer_set_font(s_app.loading_ui.journey_layer, fonts_get_system_font(FONT_KEY_GOTHIC_18));
+    text_layer_set_text_alignment(s_app.loading_ui.journey_layer, GTextAlignmentCenter);
+    text_layer_set_background_color(s_app.loading_ui.journey_layer, GColorClear);
+    text_layer_set_text_color(s_app.loading_ui.journey_layer, GColorWhite);
+    text_layer_set_text(s_app.loading_ui.journey_layer, journey_text);
+    layer_add_child(root, text_layer_get_layer(s_app.loading_ui.journey_layer));
+  }
+  y += line_height + 16;
+
+  /* Rotating arc spinner */
+  const int spinner_size = 48;
   s_app.loading_ui.spinner_layer = layer_create(
-      GRect((bounds.size.w - spinner_size) / 2, spinner_y, spinner_size, spinner_size));
+      GRect((bounds.size.w - spinner_size) / 2, y, spinner_size, spinner_size));
   if (s_app.loading_ui.spinner_layer) {
     layer_set_update_proc(s_app.loading_ui.spinner_layer, prv_spinner_layer_update_proc);
     layer_add_child(root, s_app.loading_ui.spinner_layer);
   }
+  y += spinner_size + 8;
 
-  s_app.loading_ui.status_layer = text_layer_create(
-      GRect(0, spinner_y + spinner_size + 2, bounds.size.w, 22));
+  /* Status "Ritten laden" */
+  s_app.loading_ui.status_layer = text_layer_create(GRect(0, y, bounds.size.w, line_height));
   if (s_app.loading_ui.status_layer) {
     text_layer_set_font(s_app.loading_ui.status_layer, fonts_get_system_font(FONT_KEY_GOTHIC_18));
     text_layer_set_text_alignment(s_app.loading_ui.status_layer, GTextAlignmentCenter);
     text_layer_set_background_color(s_app.loading_ui.status_layer, GColorClear);
-    text_layer_set_text_color(s_app.loading_ui.status_layer, GColorBlack);
-    text_layer_set_text(s_app.loading_ui.status_layer, "ritten laden");
+    text_layer_set_text_color(s_app.loading_ui.status_layer, GColorWhite);
+    text_layer_set_text(s_app.loading_ui.status_layer, "Ritten laden");
     layer_add_child(root, text_layer_get_layer(s_app.loading_ui.status_layer));
   }
 
@@ -1802,25 +1817,41 @@ static void prv_pop_station_windows(void) {
   }
 }
 
+static void prv_pop_stations_timeout(void *data) {
+  (void)data;
+  s_app.state.pop_stations_timer = NULL;
+  prv_pop_station_windows();
+}
+
 static void prv_present_countdown(void) {
   if (s_app.state.loading_show_timer) {
     app_timer_cancel(s_app.state.loading_show_timer);
     s_app.state.loading_show_timer = NULL;
   }
   prv_destroy_loading_ui();
-  prv_pop_station_windows();
+  
+  /* Create countdown window first to avoid MenuLayer callback crash */
   if (!s_app.windows.countdown_window) {
     s_app.windows.countdown_window = window_create();
+    if (!s_app.windows.countdown_window) return; /* Abort on NULL */
     window_set_window_handlers(s_app.windows.countdown_window, (WindowHandlers) {
       .load = prv_countdown_window_load, .unload = prv_countdown_window_unload,
     });
     window_set_click_config_provider(s_app.windows.countdown_window, prv_countdown_click_config_provider);
   }
+  
+  /* Push countdown window first */
   if (!window_stack_contains_window(s_app.windows.countdown_window)) {
     window_stack_push(s_app.windows.countdown_window, true);
   } else if (s_app.countdown_ui.vertrek_time_layer) {
     prv_update_countdown_display();
   }
+  
+  /* Schedule station window removal 60ms later to avoid destroying MenuLayer in callback */
+  if (s_app.state.pop_stations_timer) {
+    app_timer_cancel(s_app.state.pop_stations_timer);
+  }
+  s_app.state.pop_stations_timer = app_timer_register(60, prv_pop_stations_timeout, NULL);
 }
 
 static void prv_send_trip_request(void) {

@@ -83,8 +83,11 @@ typedef struct {
   #endif
 } MainWindowUI;
 
-/* Dest-window overlay: spinner + status only (no second window / bars). */
+/* Dest-window overlay: full blue screen with title, journey, status, rotating arc. */
 typedef struct {
+  Layer *bg_layer;
+  TextLayer *title_layer;
+  TextLayer *journey_layer;
   TextLayer *status_layer;
   Layer *spinner_layer;
 } TripsLoadingUI;
@@ -227,6 +230,7 @@ typedef struct {
   bool selecting_start_station;
   AppTimer *loading_fail_timer;
   AppTimer *loading_show_timer;
+  AppTimer *pop_stations_timer;
 } AppState;
 
 // --- Global App Data Instance ---
