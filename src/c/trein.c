@@ -2382,7 +2382,7 @@ static bool prv_cd_alive(void *p) {
   text_layer_set_text_color(s_app.countdown_ui.arrival_time_layer, GColorWhite);
   if (s_app.countdown_ui.arrival_time_layer) layer_add_child(window_layer, text_layer_get_layer(s_app.countdown_ui.arrival_time_layer));
 
-  s_app.countdown_ui.duration_layer = text_layer_create(GRect(x_pad, dur_y, plat_x - x_pad - 2, dur_h));
+  s_app.countdown_ui.duration_layer = text_layer_create(GRect(0, dur_y, bounds.size.w, dur_h));
   if (!prv_cd_alive(s_app.countdown_ui.duration_layer)) return;
   text_layer_set_font(s_app.countdown_ui.duration_layer, fonts_get_system_font(FONT_KEY_GOTHIC_14));
   text_layer_set_text_alignment(s_app.countdown_ui.duration_layer, GTextAlignmentCenter);
