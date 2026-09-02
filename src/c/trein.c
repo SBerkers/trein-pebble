@@ -596,8 +596,16 @@ static void prv_countdown_timer_callback(void *data) {
   bool over_uses_slack = ors_on && !at_station && s_app.routing.have_duration;
   int slack = (s_app.routing.travel_duration_min + s_app.routing.station_offset_min) * 60;
   int over_remain;
-  if (over_uses_slack) {
-    over_remain = actual_remain - slack;
+  if (ors_on && !at_station) {
+    /* ORS on and not at station: ALWAYS subtract at least station_offset */
+    int offset_sec = s_app.routing.station_offset_min * 60;
+    if (s_app.routing.have_duration) {
+      /* Have ORS duration: subtract offset + travel time */
+      over_remain = actual_remain - slack;
+    } else {
+      /* Waiting for ORS or have error but no duration yet: subtract offset only */
+      over_remain = actual_remain - offset_sec;
+    }
   } else if (aankomst && !ors_on) {
     time_t oa = (time_t)s_app.trips.origin_arrivals_epoch[idx];
     if (!oa) oa = planned_dep;
@@ -1438,7 +1446,7 @@ static void prv_inbox_received_handler(DictionaryIterator *iter, void *context) 
   }
   if (route_error_tuple) {
     s_app.routing.route_error = (uint8_t)route_error_tuple->value->int32;
-    s_app.routing.have_duration = false;
+    /* Keep last duration on error - do not reset have_duration if we already had one */
     s_app.routing.at_station = false;
     s_app.state.refresh_in_flight = false;
     if (s_app.countdown_ui.vertrek_time_layer) {

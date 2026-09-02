@@ -238,16 +238,16 @@ var orsPendingCallbacks = [];
 var orsTimeoutHandle = null;
 function fetchOrsDuration(lat, lng, dest, profile, callback, isRetry) {
   var key = trimKey(getOrsKey());
-  console.log("fetchOrsDuration: key=" + (key ? "yes" : "no") + " dest=" + (dest ? "yes" : "no") + " lastStartCode=" + lastStartCode);
+  console.log("fetchOrsDuration START: key=" + (key ? "yes" : "no") + " dest=" + (dest ? "lat=" + dest.lat.toFixed(5) + ",lng=" + dest.lng.toFixed(5) : "no") + " lastStartCode=" + lastStartCode + " GPS=" + (lat != null ? lat.toFixed(5) + "," + lng.toFixed(5) : "none") + " profile=" + profile);
   
   if (!key || !dest) {
-    console.log("ORS abort: key=" + (key ? "yes" : "no") + " dest=" + (dest ? "yes" : "no"));
+    console.log("fetchOrsDuration ABORT: missing key or dest");
     callback(null, key ? 2 : 1);
     return;
   }
   
   if (orsInFlight && !isRetry) {
-    console.log("ORS already in flight, cache=" + cachedDurationMin);
+    console.log("fetchOrsDuration DEFER: orsInFlight=true, cache=" + cachedDurationMin);
     if (cachedDurationMin != null) {
       callback(cachedDurationMin, 0);
     } else {
@@ -256,6 +256,7 @@ function fetchOrsDuration(lat, lng, dest, profile, callback, isRetry) {
     return;
   }
   
+  console.log("fetchOrsDuration CALL ORS: " + profile + " from [" + lng.toFixed(5) + "," + lat.toFixed(5) + "] to [" + dest.lng.toFixed(5) + "," + dest.lat.toFixed(5) + "]");
   orsInFlight = true;
   if (orsTimeoutHandle) clearTimeout(orsTimeoutHandle);
   orsTimeoutHandle = setTimeout(function() {
@@ -948,6 +949,8 @@ function processTripData(data) {
 
   function sendNextTrip() {
     if (sendIndex >= trips.length) {
+      /* All TRIP_* messages sent - flush pending route NOW so ORS can run */
+      flushPendingRoute();
       sendLegData(trips);
       return;
     }
