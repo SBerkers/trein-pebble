@@ -36,6 +36,7 @@ static void prv_loading_show_timeout(void *data);
 static void prv_arm_loading_fail(void);
 static void prv_pop_alpha_timeout(void *data);
 static void prv_pop_stations_timeout(void *data);
+static void prv_deferred_menu_destroy_timeout(void *data);
 static void prv_noop_click_config(void *context);
 static void prv_present_countdown(void);
 static void prv_countdown_click_config_provider(void *context);
@@ -385,11 +386,13 @@ static GFont prv_over_numeric_font(void) {
 }
 
 static GFont prv_vertrek_numeric_font(void) {
+  /* Emery/Time 2: VERTREK smaller than OVER, fully contained in cream */
   return fonts_get_system_font(prv_countdown_is_large() ? FONT_KEY_LECO_32_BOLD_NUMBERS : FONT_KEY_LECO_20_BOLD_NUMBERS);
 }
 
 static GFont prv_over_text_font(void) {
-  return fonts_get_system_font(prv_countdown_is_large() ? FONT_KEY_GOTHIC_28_BOLD : FONT_KEY_GOTHIC_24_BOLD);
+  /* For negative OVER (LECO has no minus): use ROBOTO_BOLD_SUBSET_49 on large displays */
+  return fonts_get_system_font(prv_countdown_is_large() ? FONT_KEY_ROBOTO_BOLD_SUBSET_49 : FONT_KEY_GOTHIC_24_BOLD);
 }
 
 static void prv_set_sized_clock(TextLayer *layer, const char *text, bool hero) {
@@ -535,21 +538,34 @@ static void prv_layout_countdown_clocks(bool hero) {
 
   int remain = cream_bottom - over_lab_y - 2 * lab_h - 4;
   if (remain < 40) remain = 40;
-  over_clock_h = remain * 2 / 3;
-  int vtk_clock_h = remain - over_clock_h;
-  if (large) {
-    if (over_clock_h < 48) over_clock_h = 48;
-    if (vtk_clock_h < 24) vtk_clock_h = 24;
-  } else {
-    if (over_clock_h < 28) over_clock_h = 28;
-    if (vtk_clock_h < 20) vtk_clock_h = 20;
-  }
+  
+  /* Pin VERTREK from cream_bottom, OVER gets remaining height above it */
+  const int min_vtk_h = large ? 32 : 24;
+  const int min_over_h = large ? 52 : 32;
+  int vtk_clock_h = large ? 32 : 24;
+  
+  /* VERTREK clock sits just above the blue footer */
+  int vtk_clock_y = cream_bottom - vtk_clock_h;
+  if (vtk_clock_y < cream_top) vtk_clock_y = cream_top;
+  
+  /* VERTREK label sits above the VERTREK clock */
+  int vtk_lab_y = vtk_clock_y - lab_h - (large ? 2 : 1);
+  
+  /* OVER clock fills the space from over_lab_y to vtk_lab_y */
   over_clock_y = over_lab_y + lab_h + (large ? 2 : 1);
-  int vtk_lab_y = over_clock_y + over_clock_h + (large ? 2 : 1);
-  int vtk_clock_y = vtk_lab_y + lab_h;
-  if (vtk_clock_y + vtk_clock_h > cream_bottom) {
+  over_clock_h = vtk_lab_y - over_clock_y - (large ? 2 : 1);
+  
+  /* Enforce minimum heights */
+  if (over_clock_h < min_over_h) {
+    over_clock_h = min_over_h;
+    /* Recalculate VERTREK position if OVER needs more space */
+    vtk_lab_y = over_clock_y + over_clock_h + (large ? 2 : 1);
+    vtk_clock_y = vtk_lab_y + lab_h + (large ? 2 : 1);
     vtk_clock_h = cream_bottom - vtk_clock_y;
+    if (vtk_clock_h < min_vtk_h) vtk_clock_h = min_vtk_h;
   }
+  
+  if (vtk_clock_h < min_vtk_h) vtk_clock_h = min_vtk_h;
 
   if (s_app.countdown_ui.vertrek_time_layer) {
     text_layer_set_text_alignment(s_app.countdown_ui.vertrek_time_layer, GTextAlignmentLeft);
@@ -1214,12 +1230,23 @@ static void prv_dest_menu_window_load(Window *window) {
 
 static void prv_dest_menu_window_unload(Window *window) {
   (void)window;
+  APP_LOG(APP_LOG_LEVEL_DEBUG, "dest_menu_window_unload: heap=%d", (int)heap_bytes_free());
   if (s_app.state.loading_show_timer) {
     app_timer_cancel(s_app.state.loading_show_timer);
     s_app.state.loading_show_timer = NULL;
   }
   prv_destroy_loading_ui();
+  
+  /* If countdown is being shown, defer menu_layer destruction to avoid firmware crash */
+  if (s_app.windows.countdown_window && 
+      window_stack_contains_window(s_app.windows.countdown_window)) {
+    APP_LOG(APP_LOG_LEVEL_DEBUG, "dest_menu_window_unload: countdown active, deferring menu_layer destruction");
+    /* Menu layer will be destroyed by timer from countdown_window_load */
+    return;
+  }
+  
   if (s_app.menu_layers.dest_menu_layer) {
+    APP_LOG(APP_LOG_LEVEL_DEBUG, "dest_menu_window_unload: destroying menu_layer immediately, heap=%d", (int)heap_bytes_free());
     menu_layer_destroy(s_app.menu_layers.dest_menu_layer);
     s_app.menu_layers.dest_menu_layer = NULL;
   }
@@ -1831,6 +1858,16 @@ static void prv_pop_stations_timeout(void *data) {
   prv_pop_station_windows();
 }
 
+static void prv_deferred_menu_destroy_timeout(void *data) {
+  (void)data;
+  s_app.state.deferred_menu_destroy_timer = NULL;
+  if (s_app.menu_layers.dest_menu_layer) {
+    APP_LOG(APP_LOG_LEVEL_DEBUG, "Deferred: destroying dest_menu_layer, heap=%d", (int)heap_bytes_free());
+    menu_layer_destroy(s_app.menu_layers.dest_menu_layer);
+    s_app.menu_layers.dest_menu_layer = NULL;
+  }
+}
+
 static void prv_present_countdown(void) {
   if (s_app.state.loading_show_timer) {
     app_timer_cancel(s_app.state.loading_show_timer);
@@ -2235,6 +2272,7 @@ static bool prv_cd_alive(void *p) {
 }
 
  static void prv_countdown_window_load(Window *window) {
+  APP_LOG(APP_LOG_LEVEL_DEBUG, "countdown_window_load: heap=%d", (int)heap_bytes_free());
   Layer *window_layer = window_get_root_layer(window);
   GRect bounds = layer_get_bounds(window_layer);
   const bool is_large_display = prv_is_large_display(bounds);
@@ -2480,6 +2518,15 @@ static bool prv_cd_alive(void *p) {
   s_app.state.refresh_timer = app_timer_register(30000, prv_refresh_timer_callback, NULL);
   prv_send_route_request();
 
+  /* Schedule deferred destruction of dest_menu_layer after load completes */
+  if (s_app.menu_layers.dest_menu_layer) {
+    if (s_app.state.deferred_menu_destroy_timer) {
+      app_timer_cancel(s_app.state.deferred_menu_destroy_timer);
+    }
+    APP_LOG(APP_LOG_LEVEL_DEBUG, "countdown_window_load: scheduling deferred menu_layer destruction");
+    s_app.state.deferred_menu_destroy_timer = app_timer_register(100, prv_deferred_menu_destroy_timeout, NULL);
+  }
+
   prv_update_countdown_display();
 }
 
@@ -2496,6 +2543,10 @@ static void prv_countdown_window_unload(Window *window) {
   if (s_app.state.refresh_timer) {
     app_timer_cancel(s_app.state.refresh_timer);
     s_app.state.refresh_timer = NULL;
+  }
+  if (s_app.state.deferred_menu_destroy_timer) {
+    app_timer_cancel(s_app.state.deferred_menu_destroy_timer);
+    s_app.state.deferred_menu_destroy_timer = NULL;
   }
   if (s_route_retry_timer) {
     app_timer_cancel(s_route_retry_timer);

@@ -231,6 +231,7 @@ typedef struct {
   AppTimer *loading_fail_timer;
   AppTimer *loading_show_timer;
   AppTimer *pop_stations_timer;
+  AppTimer *deferred_menu_destroy_timer;
 } AppState;
 
 // --- Global App Data Instance ---
