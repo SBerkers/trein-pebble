@@ -2252,7 +2252,7 @@ static bool prv_cd_alive(void *p) {
     time_w = side_slot;
     name_x = 0;
     name_w = bounds.size.w;
-    chrome_time_font = fonts_get_system_font(FONT_KEY_GOTHIC_18);
+    chrome_time_font = fonts_get_system_font(FONT_KEY_GOTHIC_24_BOLD);
     chrome_name_font = fonts_get_system_font(FONT_KEY_GOTHIC_18_BOLD);
   } else {
     side_slot = is_large_display ? ((bounds.size.w >= 180) ? 56 : 50) : 42;
