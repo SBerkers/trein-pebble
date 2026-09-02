@@ -235,10 +235,19 @@ function sendRouteError(code) {
   }, function() {}, function() {});
 }
 var orsPendingCallbacks = [];
+var orsTimeoutHandle = null;
 function fetchOrsDuration(lat, lng, dest, profile, callback, isRetry) {
   var key = trimKey(getOrsKey());
-  if (!key || !dest) { callback(null, key ? 2 : 1); return; }
+  console.log("fetchOrsDuration: key=" + (key ? "yes" : "no") + " dest=" + (dest ? "yes" : "no") + " lastStartCode=" + lastStartCode);
+  
+  if (!key || !dest) {
+    console.log("ORS abort: key=" + (key ? "yes" : "no") + " dest=" + (dest ? "yes" : "no"));
+    callback(null, key ? 2 : 1);
+    return;
+  }
+  
   if (orsInFlight && !isRetry) {
+    console.log("ORS already in flight, cache=" + cachedDurationMin);
     if (cachedDurationMin != null) {
       callback(cachedDurationMin, 0);
     } else {
@@ -246,21 +255,40 @@ function fetchOrsDuration(lat, lng, dest, profile, callback, isRetry) {
     }
     return;
   }
+  
   orsInFlight = true;
+  if (orsTimeoutHandle) clearTimeout(orsTimeoutHandle);
+  orsTimeoutHandle = setTimeout(function() {
+    console.log("ORS timeout reset: orsInFlight stuck, clearing");
+    orsInFlight = false;
+    orsTimeoutHandle = null;
+  }, 8000);
+  
   var xhr = new XMLHttpRequest();
   xhr.timeout = 8000;
   var url = "https://api.heigit.org/openrouteservice/v2/directions/" + profile;
   xhr.open("POST", url, true);
   xhr.setRequestHeader("Authorization", key);
   xhr.setRequestHeader("Content-Type", "application/json");
-  xhr.onload = function() {
+  
+  var handled = false;
+  function handleResponse() {
+    if (handled) return;
+    handled = true;
+    if (orsTimeoutHandle) clearTimeout(orsTimeoutHandle);
+    orsTimeoutHandle = null;
     orsInFlight = false;
-    console.log("ORS status: " + xhr.status);
-    if (xhr.status < 200 || xhr.status >= 300) {
+    
+    var status = xhr.status || 0;
+    console.log("ORS status: " + status + " readyState: " + xhr.readyState);
+    
+    if (status < 200 || status >= 300 || status === 0) {
       if (!isRetry) {
+        console.log("ORS retry on status " + status);
         fetchOrsDuration(lat, lng, dest, profile, callback, true);
         return;
       }
+      console.log("ORS final fail status " + status);
       callback(null, 2);
       while (orsPendingCallbacks.length > 0) {
         var cb = orsPendingCallbacks.shift();
@@ -268,11 +296,13 @@ function fetchOrsDuration(lat, lng, dest, profile, callback, isRetry) {
       }
       return;
     }
+    
     try {
       var sec = parseOrsDurationSec(JSON.parse(xhr.responseText));
       if (typeof sec === "number") {
         lastRouted = { lat: lat, lng: lng };
         cachedDurationMin = Math.max(0, Math.round(sec / 60));
+        console.log("ORS success: " + sec + "s = " + cachedDurationMin + " min");
         callback(cachedDurationMin, 0);
         while (orsPendingCallbacks.length > 0) {
           var cb = orsPendingCallbacks.shift();
@@ -281,40 +311,38 @@ function fetchOrsDuration(lat, lng, dest, profile, callback, isRetry) {
         return;
       }
     } catch (e) {
-      console.log("ORS parse fail");
+      console.log("ORS parse fail: " + e);
     }
+    
     if (!isRetry) {
+      console.log("ORS retry on parse fail");
       fetchOrsDuration(lat, lng, dest, profile, callback, true);
       return;
     }
+    console.log("ORS final fail parse");
     callback(null, 2);
     while (orsPendingCallbacks.length > 0) {
       var cb = orsPendingCallbacks.shift();
       cb(null, 2);
     }
-  };
-  xhr.onerror = xhr.ontimeout = function() {
-    orsInFlight = false;
-    console.log("ORS status: error/timeout");
-    if (!isRetry) {
-      fetchOrsDuration(lat, lng, dest, profile, callback, true);
-      return;
-    }
-    callback(null, 2);
-    while (orsPendingCallbacks.length > 0) {
-      var cb = orsPendingCallbacks.shift();
-      cb(null, 2);
+  }
+  
+  xhr.onloadend = handleResponse;
+  xhr.onreadystatechange = function() {
+    if (xhr.readyState === 4) {
+      handleResponse();
     }
   };
+  
   xhr.send(JSON.stringify({ coordinates: [[lng, lat], [dest.lng, dest.lat]] }));
 }
 function runRouteFrom(lat, lng, vervoer, force) {
   lastRouteGps = { lat: lat, lng: lng };
   var dest = coordsFor(lastStartCode);
   if (!dest) {
+    console.log("runRouteFrom: missing coords for " + lastStartCode + ", looking up");
     routeTickMissedDest = true;
     lookupStartCoords(lastStartCode);
-    sendRouteError(2);
     return;
   }
   routeTickMissedDest = false;
