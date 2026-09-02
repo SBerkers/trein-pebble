@@ -100,20 +100,54 @@ function lsGet(k, d) { try { var v = localStorage.getItem(k); return v == null ?
 function lsSet(k, v) { try { localStorage.setItem(k, v); } catch (e) {} }
 function loadEmulatorOrsKey() {
   if (typeof Pebble === "undefined" || Pebble.platform !== "pypkjs") return "";
+  
+  /* Try Node.js fs module first (pypkjs has Node environment) */
+  try {
+    if (typeof require !== "undefined") {
+      var fs = require("fs");
+      var keyPath = "/home/box/.config/trein/ors_api_key";
+      if (fs.existsSync(keyPath)) {
+        var key = fs.readFileSync(keyPath, "utf8");
+        console.log("loadEmulatorOrsKey: loaded from fs, length=" + key.length);
+        return trimKey(key);
+      } else {
+        console.log("loadEmulatorOrsKey: file not found: " + keyPath);
+      }
+    }
+  } catch (e) {
+    console.log("loadEmulatorOrsKey: fs failed: " + e);
+  }
+  
+  /* Fallback to XHR (probably won't work in pypkjs but try anyway) */
   try {
     var xhr = new XMLHttpRequest();
     xhr.open("GET", "file:///home/box/.config/trein/ors_api_key", false);
     xhr.send(null);
-    return trimKey(xhr.responseText);
+    if (xhr.status === 0 || xhr.status === 200) {
+      console.log("loadEmulatorOrsKey: loaded from XHR, length=" + xhr.responseText.length);
+      return trimKey(xhr.responseText);
+    }
   } catch (e) {
-    return "";
+    console.log("loadEmulatorOrsKey: XHR failed: " + e);
   }
+  
+  console.log("loadEmulatorOrsKey: FAILED - no key loaded");
+  return "";
 }
 
 function getOrsKey() {
   var k = trimKey(lsGet("routing_api_key", ""));
-  if (k) return k;
-  return loadEmulatorOrsKey();
+  if (k) {
+    console.log("getOrsKey: from localStorage, length=" + k.length);
+    return k;
+  }
+  var emu = loadEmulatorOrsKey();
+  if (emu) {
+    console.log("getOrsKey: from emulator file, length=" + emu.length);
+  } else {
+    console.log("getOrsKey: NO KEY AVAILABLE");
+  }
+  return emu;
 }
 function offsetForCode(code) {
   var map = {};
@@ -355,7 +389,7 @@ function runRouteFrom(lat, lng, vervoer, force) {
     return;
   }
   if (!getOrsKey()) {
-    console.log("runRouteFrom: no ORS key");
+    console.log("runRouteFrom: ORS ABORT NO KEY");
     sendRouteError(1);
     return;
   }
