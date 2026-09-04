@@ -1253,21 +1253,19 @@ static void prv_dest_menu_window_unload(Window *window) {
   (void)window;
   APP_LOG(APP_LOG_LEVEL_DEBUG, "dest_menu_window_unload: heap=%d has_layer=%d",
           (int)heap_bytes_free(), s_app.menu_layers.dest_menu_layer ? 1 : 0);
+  /* Time 2: do not destroy child layers here while countdown is on the stack.
+   * 1.7.15 crashed inside prv_destroy_loading_ui during this unload (no second
+   * APP_LOG, then process_manager killed the app). */
+  if (s_app.windows.countdown_window &&
+      window_stack_contains_window(s_app.windows.countdown_window)) {
+    APP_LOG(APP_LOG_LEVEL_DEBUG, "dest_menu_window_unload: skip destroy, countdown on stack");
+    return;
+  }
   if (s_app.state.loading_show_timer) {
     app_timer_cancel(s_app.state.loading_show_timer);
     s_app.state.loading_show_timer = NULL;
   }
   prv_destroy_loading_ui();
-
-  /* Countdown is on the stack: dest_menu_layer must already have been destroyed
-   * in prv_present_countdown. Destroying a MenuLayer after this window unload
-   * crashes Time 2 firmware (qemu often does not). */
-  if (s_app.windows.countdown_window &&
-      window_stack_contains_window(s_app.windows.countdown_window)) {
-    APP_LOG(APP_LOG_LEVEL_DEBUG, "dest_menu_window_unload: countdown active, not destroying layer");
-    return;
-  }
-
   prv_destroy_dest_menu_layer();
 }
 
@@ -1861,13 +1859,20 @@ static void prv_pop_station_windows(void) {
       window_stack_contains_window(s_app.windows.alpha_menu_window)) {
     window_stack_remove(s_app.windows.alpha_menu_window, false);
   }
-  if (s_app.windows.dest_menu_window &&
-      window_stack_contains_window(s_app.windows.dest_menu_window)) {
-    window_stack_remove(s_app.windows.dest_menu_window, false);
-  }
   if (s_app.windows.menu_window &&
       window_stack_contains_window(s_app.windows.menu_window)) {
     window_stack_remove(s_app.windows.menu_window, false);
+  }
+  /* Leave dest_menu_window under countdown. Popping it on Time 2 after
+   * countdown_window_load kills the app (process_manager heap dump, no APP_LOG). */
+  if (s_app.windows.countdown_window &&
+      window_stack_contains_window(s_app.windows.countdown_window)) {
+    APP_LOG(APP_LOG_LEVEL_DEBUG, "pop_station_windows: keep dest under countdown");
+    return;
+  }
+  if (s_app.windows.dest_menu_window &&
+      window_stack_contains_window(s_app.windows.dest_menu_window)) {
+    window_stack_remove(s_app.windows.dest_menu_window, false);
   }
 }
 
@@ -1927,12 +1932,16 @@ static void prv_present_countdown(void) {
     prv_update_countdown_display();
   }
 
+  APP_LOG(APP_LOG_LEVEL_DEBUG, "present_countdown: destroy loading overlay");
   prv_destroy_loading_ui();
+  APP_LOG(APP_LOG_LEVEL_DEBUG, "present_countdown: loading overlay gone heap=%d",
+          (int)heap_bytes_free());
 
   if (s_app.state.pop_stations_timer) {
     app_timer_cancel(s_app.state.pop_stations_timer);
+    s_app.state.pop_stations_timer = NULL;
   }
-  s_app.state.pop_stations_timer = app_timer_register(60, prv_pop_stations_timeout, NULL);
+  /* Do not pop dest_menu_window. Nearby/alpha already removed above. */
 }
 
 static void prv_send_trip_request(void) {
@@ -2612,6 +2621,12 @@ static void prv_countdown_window_unload(Window *window) {
   if (s_app.countdown_ui.bg_yellow_layer) layer_destroy(s_app.countdown_ui.bg_yellow_layer);
 #endif
   memset(&s_app.countdown_ui, 0, sizeof(s_app.countdown_ui));
+  /* Dest window stayed under countdown; recreate its MenuLayer now that we
+   * are leaving countdown (contains_window may still be true in this unload). */
+  if (s_app.windows.dest_menu_window) {
+    APP_LOG(APP_LOG_LEVEL_DEBUG, "countdown unload: reattach dest menu");
+    prv_dest_menu_attach(s_app.windows.dest_menu_window);
+  }
 }
 
 int main(void) {
