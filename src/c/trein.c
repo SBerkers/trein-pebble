@@ -394,26 +394,12 @@ static bool prv_countdown_is_emery(void) {
 }
 
 static GFont prv_over_numeric_font(void) {
-  /* Emery OVER uses LECO_60 for ~42px glyphs (LECO_42 only ~29px) */
-  if (prv_countdown_is_emery()) {
-#if defined(FONT_KEY_LECO_60_BOLD_NUMBERS_AM_PM)
-    return fonts_get_system_font(FONT_KEY_LECO_60_BOLD_NUMBERS_AM_PM);
-#else
-    return fonts_get_system_font(FONT_KEY_LECO_42_NUMBERS);
-#endif
-  }
+  /* All platforms use LECO_42/20 for OVER - consistent LECO family */
   return fonts_get_system_font(prv_countdown_is_large() ? FONT_KEY_LECO_42_NUMBERS : FONT_KEY_LECO_20_BOLD_NUMBERS);
 }
 
 static GFont prv_hero_numeric_font(void) {
-  /* Emery hero uses LECO_60 for larger glyphs */
-  if (prv_countdown_is_emery()) {
-#if defined(FONT_KEY_LECO_60_BOLD_NUMBERS_AM_PM)
-    return fonts_get_system_font(FONT_KEY_LECO_60_BOLD_NUMBERS_AM_PM);
-#else
-    return fonts_get_system_font(FONT_KEY_LECO_42_NUMBERS);
-#endif
-  }
+  /* Hero mode uses LECO_42/20 - consistent with VERTREK LECO_26 family */
   return fonts_get_system_font(prv_countdown_is_large() ? FONT_KEY_LECO_42_NUMBERS : FONT_KEY_LECO_20_BOLD_NUMBERS);
 }
 
@@ -430,19 +416,10 @@ static GFont prv_over_text_font(void) {
 static void prv_set_sized_clock(TextLayer *layer, const char *text, bool hero) {
   if (!layer || !text) return;
   if (prv_leco_safe(text)) {
-    /* Emery OVER: LECO_60 for ~42px ink (LECO_42 only ~29px) */
-    if (hero && prv_countdown_is_emery()) {
-#if defined(FONT_KEY_LECO_60_BOLD_NUMBERS_AM_PM)
-      text_layer_set_font(layer, fonts_get_system_font(FONT_KEY_LECO_60_BOLD_NUMBERS_AM_PM));
-      APP_LOG(APP_LOG_LEVEL_DEBUG, "over font leco60 emery");
-#else
-      text_layer_set_font(layer, fonts_get_system_font(FONT_KEY_LECO_42_NUMBERS));
-      APP_LOG(APP_LOG_LEVEL_DEBUG, "over font leco42 emery");
-#endif
-    } else {
-      text_layer_set_font(layer, hero ? prv_hero_numeric_font() : prv_vertrek_numeric_font());
-    }
+    /* All platforms: LECO_42 for hero OVER (consistent LECO family) */
+    text_layer_set_font(layer, hero ? prv_hero_numeric_font() : prv_vertrek_numeric_font());
   } else {
+    /* Roboto 49 only for minus signs (LECO has no minus) */
     text_layer_set_font(layer, hero ? prv_over_text_font()
         : fonts_get_system_font(prv_countdown_is_large() ? FONT_KEY_GOTHIC_18_BOLD : FONT_KEY_GOTHIC_14_BOLD));
   }
@@ -584,8 +561,8 @@ static void prv_layout_countdown_clocks(bool hero, bool show_delay) {
   int delay_y;
 
   if (hero) {
-    /* Hero mode: OVER gets full cream height, delay under. LECO_60 needs ~68px */
-    over_clock_h = is_emery ? 68 : (large ? 56 : 32);
+    /* Hero mode: OVER gets full cream height, delay under. LECO_42 ~42px line box */
+    over_clock_h = is_emery ? 64 : (large ? 56 : 32);
     delay_y = over_clock_y + over_clock_h + gap;
     layer_set_frame(text_layer_get_layer(s_app.countdown_ui.over_label_layer),
                     GRect(x_pad, over_lab_y, clock_w, lab_h));
@@ -606,8 +583,8 @@ static void prv_layout_countdown_clocks(bool hero, bool show_delay) {
   }
 
   /* Dual mode: delay sits BESIDE VERTREK (same row), not under */
-  /* OVER gets tall frame (~70px) for LECO_60 ~42px glyphs */
-  over_clock_h = is_emery ? 70 : (large ? 58 : 38);
+  /* OVER gets ~65px frame for LECO_42 (~42px line box, ~29px ink) */
+  over_clock_h = is_emery ? 65 : (large ? 58 : 38);
   int vtk_lab_y = over_clock_y + over_clock_h + gap;
   int vtk_clock_h = large ? 34 : 24;
   int vtk_clock_y = vtk_lab_y + lab_h;
