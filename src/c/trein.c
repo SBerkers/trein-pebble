@@ -555,7 +555,7 @@ static void prv_layout_countdown_clocks(bool hero, bool show_delay) {
     text_layer_set_text_alignment(s_app.countdown_ui.vertrek_label_layer, GTextAlignmentLeft);
   }
 
-  /* Delay sits directly under the clock, not beside it and not pinned to the footer. */
+  /* Hero mode: delay sits directly under the clock */
   int delay_h = show_delay ? (is_emery ? 28 : (large ? 26 : 20)) : 0;
   int over_lab_y = cream_top + dur_h;
   int over_clock_y = over_lab_y + lab_h;
@@ -583,11 +583,16 @@ static void prv_layout_countdown_clocks(bool hero, bool show_delay) {
     return;
   }
 
+  /* Dual mode: delay sits BESIDE VERTREK (same row), not under */
   over_clock_h = is_emery ? 52 : (large ? 48 : 32);
   int vtk_lab_y = over_clock_y + over_clock_h + gap;
-  int vtk_clock_h = large ? 32 : 24;
+  int vtk_clock_h = large ? 34 : 24;
   int vtk_clock_y = vtk_lab_y + lab_h;
-  delay_y = vtk_clock_y + vtk_clock_h + gap;
+  
+  /* Delay beside VERTREK: VERTREK takes ~70%, delay takes ~30% */
+  int vtk_clock_w = show_delay ? (clock_w * 7 / 10) : clock_w;
+  int delay_w = show_delay ? (clock_w - vtk_clock_w) : 0;
+  int delay_x = x_pad + vtk_clock_w;
 
   text_layer_set_text_alignment(s_app.countdown_ui.over_time_layer, GTextAlignmentLeft);
   if (s_app.countdown_ui.vertrek_time_layer) {
@@ -602,10 +607,11 @@ static void prv_layout_countdown_clocks(bool hero, bool show_delay) {
   layer_set_frame(text_layer_get_layer(s_app.countdown_ui.vertrek_label_layer),
                   GRect(x_pad, vtk_lab_y, lab_w, lab_h));
   layer_set_frame(text_layer_get_layer(s_app.countdown_ui.vertrek_time_layer),
-                  GRect(x_pad, vtk_clock_y, clock_w, vtk_clock_h));
+                  GRect(x_pad, vtk_clock_y, vtk_clock_w, vtk_clock_h));
   if (s_app.countdown_ui.delay_layer) {
+    /* Delay beside VERTREK on the same row */
     layer_set_frame(text_layer_get_layer(s_app.countdown_ui.delay_layer),
-                    GRect(x_pad, delay_y, clock_w, delay_h > 0 ? delay_h : 1));
+                    GRect(delay_x, vtk_clock_y, delay_w > 0 ? delay_w : 1, vtk_clock_h));
     text_layer_set_text_alignment(s_app.countdown_ui.delay_layer, GTextAlignmentLeft);
     layer_set_hidden(text_layer_get_layer(s_app.countdown_ui.delay_layer), !show_delay);
   }
@@ -668,10 +674,15 @@ static void prv_countdown_timer_callback(void *data) {
   if (cancelled) {
     band = GColorRed;
     over_fg = GColorWhite;
+  } else if (actual_passed) {
+    /* Vertrokken: cream band, not red */
+    band = GColorYellow;
+    over_fg = GColorBlack;
   } else if (waiting_ors) {
     band = GColorYellow;
     over_fg = GColorDarkGray;
   } else if (dual_mode) {
+    /* ORS on: green >2min, orange 0-2min, red <0 */
     if (over_remain < 0) {
       band = GColorRed;
       over_fg = GColorWhite;
@@ -683,6 +694,7 @@ static void prv_countdown_timer_callback(void *data) {
       over_fg = GColorIslamicGreen;
     }
   } else if (at_station) {
+    /* On station: cream band, no OVER, hero VERTREK */
     band = GColorYellow;
     over_fg = GColorBlack;
   }
@@ -720,7 +732,7 @@ static void prv_countdown_timer_callback(void *data) {
     } else if (waiting_ors) {
       prv_set_over_text("...");
     } else if (actual_passed && !aankomst) {
-      prv_set_over_text("Departed");
+      prv_set_over_text("Vertrokken");
       time_t idle_since = s_app.state.last_button_time > actual_dep
           ? s_app.state.last_button_time : actual_dep;
       if ((now - idle_since) >= 180 && s_app.state.last_button_time != 0) {
@@ -755,7 +767,7 @@ static void prv_countdown_timer_callback(void *data) {
     if (cancelled) {
       snprintf(s_app.buffers.vertrek_buffer, sizeof(s_app.buffers.vertrek_buffer), "--:--");
     } else if (actual_passed && !aankomst) {
-      snprintf(s_app.buffers.vertrek_buffer, sizeof(s_app.buffers.vertrek_buffer), "Departed");
+      snprintf(s_app.buffers.vertrek_buffer, sizeof(s_app.buffers.vertrek_buffer), "Vertrokken");
       time_t idle_since = s_app.state.last_button_time > actual_dep
           ? s_app.state.last_button_time : actual_dep;
       if ((now - idle_since) >= 180 && s_app.state.last_button_time != 0) {
