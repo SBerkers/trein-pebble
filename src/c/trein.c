@@ -762,7 +762,7 @@ static void prv_countdown_timer_callback(void *data) {
     } else if (waiting_ors) {
       prv_set_over_text("...");
     } else {
-      prv_fmt_remain(s_app.buffers.over_buffer, sizeof(s_app.buffers.over_buffer), over_remain, false);
+      prv_fmt_remain(s_app.buffers.over_buffer, sizeof(s_app.buffers.over_buffer), over_remain, true);
       prv_set_over_text(s_app.buffers.over_buffer);
     }
 
