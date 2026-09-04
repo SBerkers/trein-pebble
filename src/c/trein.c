@@ -646,7 +646,7 @@ static void prv_countdown_timer_callback(void *data) {
   bool have_ors = s_app.routing.have_duration && !s_app.routing.route_error;
   bool train_departed = s_app.trips.departed[idx];
   // Show "Vertrokken" if departed flag is set OR if actual departure time has passed
-  bool actual_passed = train_departed || (actual_remain <= 0 && actual_dep <= now && actual_dep > 0);
+  bool actual_passed = train_departed || (actual_dep > 0 && actual_remain <= 0);
   bool waiting_ors = ors_on && !at_station && !have_ors && !s_app.routing.route_error && !actual_passed;
   bool dual_mode = ors_on && have_ors && !at_station && !actual_passed;
   bool hero_mode = !dual_mode;
