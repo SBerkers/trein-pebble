@@ -393,6 +393,7 @@ static bool prv_countdown_is_emery(void) {
   return (bounds.size.w == 200 && bounds.size.h == 228);
 }
 
+/* 1.8.8: LECO_42 only — no LECO_60 */
 static GFont prv_over_numeric_font(void) {
   /* All platforms use LECO_42/20 for OVER - consistent LECO family */
   return fonts_get_system_font(prv_countdown_is_large() ? FONT_KEY_LECO_42_NUMBERS : FONT_KEY_LECO_20_BOLD_NUMBERS);
