@@ -394,17 +394,13 @@ static bool prv_countdown_is_emery(void) {
 }
 
 static GFont prv_over_numeric_font(void) {
-  if (prv_countdown_is_emery()) {
-    return fonts_get_system_font(FONT_KEY_ROBOTO_BOLD_SUBSET_49);
-  }
+  /* OVER always uses LECO_42 on emery (dual or hero), matches mockup ~50px glyphs */
   return fonts_get_system_font(prv_countdown_is_large() ? FONT_KEY_LECO_42_NUMBERS : FONT_KEY_LECO_20_BOLD_NUMBERS);
 }
 
 static GFont prv_hero_numeric_font(void) {
-  if (prv_countdown_is_emery()) {
-    return fonts_get_system_font(FONT_KEY_LECO_42_NUMBERS);
-  }
-  return prv_over_numeric_font();
+  /* Hero mode uses LECO_42 on large displays */
+  return fonts_get_system_font(prv_countdown_is_large() ? FONT_KEY_LECO_42_NUMBERS : FONT_KEY_LECO_20_BOLD_NUMBERS);
 }
 
 static GFont prv_vertrek_numeric_font(void) {
@@ -563,7 +559,8 @@ static void prv_layout_countdown_clocks(bool hero, bool show_delay) {
   int delay_y;
 
   if (hero) {
-    over_clock_h = is_emery ? 48 : (large ? 48 : 28);
+    /* Hero mode: OVER gets full cream height, delay under */
+    over_clock_h = is_emery ? 60 : (large ? 56 : 32);
     delay_y = over_clock_y + over_clock_h + gap;
     layer_set_frame(text_layer_get_layer(s_app.countdown_ui.over_label_layer),
                     GRect(x_pad, over_lab_y, clock_w, lab_h));
@@ -584,7 +581,8 @@ static void prv_layout_countdown_clocks(bool hero, bool show_delay) {
   }
 
   /* Dual mode: delay sits BESIDE VERTREK (same row), not under */
-  over_clock_h = is_emery ? 52 : (large ? 48 : 32);
+  /* OVER gets tall frame (~65px) for LECO_42 ~50px glyphs to match mockup */
+  over_clock_h = is_emery ? 65 : (large ? 58 : 38);
   int vtk_lab_y = over_clock_y + over_clock_h + gap;
   int vtk_clock_h = large ? 34 : 24;
   int vtk_clock_y = vtk_lab_y + lab_h;
@@ -2567,7 +2565,7 @@ static void prv_countdown_window_load(Window *window) {
   GFont chrome_time_font, chrome_name_font;
   
   if (is_emery) {
-    side_slot = 60;
+    side_slot = 56;  /* Reduced from 60 to give more width for station names */
     time_w = side_slot;
     bar_time_h = 30;
     bar_name_h = 22;
@@ -2576,7 +2574,7 @@ static void prv_countdown_window_load(Window *window) {
     bot_time_y = bounds.size.h - bot_bar + (bot_bar - bar_time_h) / 2;
     bot_name_y = bounds.size.h - bot_bar + (bot_bar - bar_name_h) / 2;
     name_x = side_slot;
-    name_w = bounds.size.w - 2 * side_slot;
+    name_w = bounds.size.w - 2 * side_slot;  /* 200 - 112 = 88px for names */
     chrome_time_font = fonts_get_system_font(FONT_KEY_GOTHIC_24_BOLD);
     chrome_name_font = fonts_get_system_font(FONT_KEY_GOTHIC_18_BOLD);
   } else {
