@@ -711,7 +711,7 @@ static void prv_countdown_timer_callback(void *data) {
     snprintf(s_app.buffers.vertrek_buffer, sizeof(s_app.buffers.vertrek_buffer), "Departed");
     time_t idle_since = s_app.state.last_button_time > actual_dep
         ? s_app.state.last_button_time : actual_dep;
-    if ((now - idle_since) >= 180) {
+    if ((now - idle_since) >= 180 && s_app.state.last_button_time != 0) {
       window_stack_pop_all(true);
       return;
     }
@@ -1927,7 +1927,7 @@ static void prv_present_countdown(void) {
   }
 
   if (!window_stack_contains_window(s_app.windows.countdown_window)) {
-    window_stack_push(s_app.windows.countdown_window, true);
+    window_stack_push(s_app.windows.countdown_window, false);
   } else if (s_app.countdown_ui.vertrek_time_layer) {
     prv_update_countdown_display();
   }
@@ -2318,6 +2318,7 @@ static bool prv_cd_alive(void *p) {
 
 static void prv_countdown_window_load(Window *window) {
   APP_LOG(APP_LOG_LEVEL_DEBUG, "countdown_window_load: heap=%d", (int)heap_bytes_free());
+  prv_stamp_button();
   Layer *window_layer = window_get_root_layer(window);
   GRect bounds = layer_get_bounds(window_layer);
   const bool is_large_display = prv_is_large_display(bounds);
@@ -2621,11 +2622,12 @@ static void prv_countdown_window_unload(Window *window) {
   if (s_app.countdown_ui.bg_yellow_layer) layer_destroy(s_app.countdown_ui.bg_yellow_layer);
 #endif
   memset(&s_app.countdown_ui, 0, sizeof(s_app.countdown_ui));
-  /* Dest window stayed under countdown; recreate its MenuLayer now that we
-   * are leaving countdown (contains_window may still be true in this unload). */
-  if (s_app.windows.dest_menu_window) {
+  if (s_app.windows.dest_menu_window &&
+      window_stack_contains_window(s_app.windows.dest_menu_window)) {
     APP_LOG(APP_LOG_LEVEL_DEBUG, "countdown unload: reattach dest menu");
     prv_dest_menu_attach(s_app.windows.dest_menu_window);
+  } else {
+    APP_LOG(APP_LOG_LEVEL_DEBUG, "countdown unload: dest not on stack, skip reattach");
   }
 }
 
