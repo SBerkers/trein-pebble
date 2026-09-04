@@ -98,6 +98,7 @@ typedef struct {
   Layer *platform_border_layer;
   TextLayer *over_label_layer;
   TextLayer *over_time_layer;
+  Layer *over_minus_layer;  /* 1.8.9: Minus indicator for negative OVER (LECO has no minus) */
   TextLayer *vertrek_label_layer;
   TextLayer *vertrek_time_layer;
   TextLayer *start_station_layer;
@@ -233,6 +234,7 @@ typedef struct {
   AppTimer *loading_show_timer;
   AppTimer *pop_stations_timer;
   AppTimer *deferred_menu_destroy_timer;
+  bool over_is_negative;  /* 1.8.9: Track if OVER is negative for minus indicator */
 } AppState;
 
 // --- Global App Data Instance ---

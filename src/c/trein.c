@@ -125,6 +125,25 @@ static void prv_platform_border_update_proc(Layer *layer, GContext *ctx) {
   graphics_draw_rect(ctx, bounds);
 }
 
+/* 1.8.9: Minus indicator for negative OVER (LECO has no minus glyph) */
+static void prv_over_minus_update_proc(Layer *layer, GContext *ctx) {
+  if (!s_app.state.over_is_negative) return;
+  
+  GRect bounds = layer_get_bounds(layer);
+  int center_y = bounds.size.h / 2;
+  int line_w = bounds.size.w - 4;  /* Leave 2px margin on each side */
+  
+  #ifdef PBL_COLOR
+  /* Match OVER text color based on band */
+  GColor color = (s_mid_band_color == GColorRed) ? GColorWhite : GColorBlack;
+  graphics_context_set_stroke_color(ctx, color);
+  #else
+  graphics_context_set_stroke_color(ctx, GColorBlack);
+  #endif
+  graphics_context_set_stroke_width(ctx, 3);
+  graphics_draw_line(ctx, GPoint(2, center_y), GPoint(2 + line_w, center_y));
+}
+
 // Draw rotating arc spinner (white on OxfordBlue background)
 static void prv_spinner_layer_update_proc(Layer *layer, GContext *ctx) {
   GRect bounds = layer_get_bounds(layer);
@@ -420,9 +439,14 @@ static void prv_set_sized_clock(TextLayer *layer, const char *text, bool hero) {
     /* All platforms: LECO_42 for hero OVER (consistent LECO family) */
     text_layer_set_font(layer, hero ? prv_hero_numeric_font() : prv_vertrek_numeric_font());
   } else {
-    /* Roboto 49 only for minus signs (LECO has no minus) */
-    text_layer_set_font(layer, hero ? prv_over_text_font()
-        : fonts_get_system_font(prv_countdown_is_large() ? FONT_KEY_GOTHIC_18_BOLD : FONT_KEY_GOTHIC_14_BOLD));
+    /* Non-numeric text (e.g. "Vertrokken", "GEANNULEERD") */
+    if (hero) {
+      /* Hero mode: use large Roboto for text like "Vertrokken" */
+      text_layer_set_font(layer, prv_over_text_font());
+    } else {
+      /* Dual VERTREK mode: use GOTHIC_24_BOLD on emery for "Vertrokken" */
+      text_layer_set_font(layer, fonts_get_system_font(prv_countdown_is_large() ? FONT_KEY_GOTHIC_24_BOLD : FONT_KEY_GOTHIC_18_BOLD));
+    }
   }
   text_layer_set_text(layer, text);
 }
@@ -760,10 +784,15 @@ static void prv_countdown_timer_callback(void *data) {
 
     if (cancelled) {
       prv_set_over_text("GEANNULEERD");
+      s_app.state.over_is_negative = false;
     } else if (waiting_ors) {
       prv_set_over_text("...");
+      s_app.state.over_is_negative = false;
     } else {
-      prv_fmt_remain(s_app.buffers.over_buffer, sizeof(s_app.buffers.over_buffer), over_remain, true);
+      /* 1.8.9: Format with absolute value to keep LECO_42; show minus separately */
+      s_app.state.over_is_negative = (over_remain < 0);
+      int abs_remain = over_remain < 0 ? -over_remain : over_remain;
+      prv_fmt_remain(s_app.buffers.over_buffer, sizeof(s_app.buffers.over_buffer), abs_remain, false);
       prv_set_over_text(s_app.buffers.over_buffer);
     }
 
@@ -784,6 +813,11 @@ static void prv_countdown_timer_callback(void *data) {
     prv_apply_delay_ui(show_delay && !cancelled && !actual_passed,
                        false, prv_countdown_is_large(), s_app.countdown_ui.vertrek_time_layer,
                        delay_min, planned_remain, actual_remain);
+  }
+
+  /* Mark minus layer dirty to redraw when over_is_negative changes */
+  if (s_app.countdown_ui.over_minus_layer) {
+    layer_mark_dirty(s_app.countdown_ui.over_minus_layer);
   }
 
   s_app.state.countdown_timer = app_timer_register(1000, prv_countdown_timer_callback, NULL);
@@ -2720,6 +2754,14 @@ static void prv_countdown_window_load(Window *window) {
   prv_set_over_text("--:--");
   if (s_app.countdown_ui.over_time_layer) layer_add_child(window_layer, text_layer_get_layer(s_app.countdown_ui.over_time_layer));
 
+  /* 1.8.9: Minus indicator layer for negative OVER (positioned left of digits) */
+  int minus_w = 16;
+  int minus_x = x_pad + (clock_w / 2) - 50;  /* Left of center OVER digits */
+  s_app.countdown_ui.over_minus_layer = layer_create(GRect(minus_x, over_clock_y + (over_clock_h / 2) - 8, minus_w, 16));
+  if (!prv_cd_alive(s_app.countdown_ui.over_minus_layer)) return;
+  if (s_app.countdown_ui.over_minus_layer) layer_set_update_proc(s_app.countdown_ui.over_minus_layer, prv_over_minus_update_proc);
+  if (s_app.countdown_ui.over_minus_layer) layer_add_child(window_layer, s_app.countdown_ui.over_minus_layer);
+
   s_app.countdown_ui.vertrek_label_layer = text_layer_create(GRect(x_pad, vtk_lab_y, lab_w, lab_h));
   if (!prv_cd_alive(s_app.countdown_ui.vertrek_label_layer)) return;
   text_layer_set_text(s_app.countdown_ui.vertrek_label_layer, "VERTREK");
@@ -2825,6 +2867,7 @@ static void prv_countdown_window_unload(Window *window) {
   if (s_app.countdown_ui.platform_number_layer) text_layer_destroy(s_app.countdown_ui.platform_number_layer);
   if (s_app.countdown_ui.over_label_layer) text_layer_destroy(s_app.countdown_ui.over_label_layer);
   if (s_app.countdown_ui.over_time_layer) text_layer_destroy(s_app.countdown_ui.over_time_layer);
+  if (s_app.countdown_ui.over_minus_layer) layer_destroy(s_app.countdown_ui.over_minus_layer);
   if (s_app.countdown_ui.vertrek_label_layer) text_layer_destroy(s_app.countdown_ui.vertrek_label_layer);
   if (s_app.countdown_ui.vertrek_time_layer) text_layer_destroy(s_app.countdown_ui.vertrek_time_layer);
   if (s_app.countdown_ui.clock_layer) text_layer_destroy(s_app.countdown_ui.clock_layer);
