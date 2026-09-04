@@ -645,7 +645,8 @@ static void prv_countdown_timer_callback(void *data) {
   bool aankomst = (s_app.settings.tijd_mode == TIJD_MODE_AANKOMST);
   bool have_ors = s_app.routing.have_duration && !s_app.routing.route_error;
   bool train_departed = s_app.trips.departed[idx];
-  bool actual_passed = train_departed;
+  // Show "Vertrokken" if departed flag is set OR if actual departure time has passed
+  bool actual_passed = train_departed || (actual_remain <= 0 && actual_dep <= now && actual_dep > 0);
   bool waiting_ors = ors_on && !at_station && !have_ors && !s_app.routing.route_error && !actual_passed;
   bool dual_mode = ors_on && have_ors && !at_station && !actual_passed;
   bool hero_mode = !dual_mode;
@@ -2126,10 +2127,15 @@ static void prv_present_countdown(void) {
     window_set_click_config_provider(s_app.windows.countdown_window, prv_countdown_click_config_provider);
   }
 
+  /* Guard: only push if not already on stack. Otherwise just update display. */
   if (!window_stack_contains_window(s_app.windows.countdown_window)) {
+    APP_LOG(APP_LOG_LEVEL_DEBUG, "present_countdown: pushing countdown window");
     window_stack_push(s_app.windows.countdown_window, false);
-  } else if (s_app.countdown_ui.vertrek_time_layer) {
-    prv_update_countdown_display();
+  } else {
+    APP_LOG(APP_LOG_LEVEL_DEBUG, "present_countdown: countdown already on stack, updating");
+    if (s_app.countdown_ui.vertrek_time_layer) {
+      prv_update_countdown_display();
+    }
   }
 
   APP_LOG(APP_LOG_LEVEL_DEBUG, "present_countdown: destroy loading overlay");

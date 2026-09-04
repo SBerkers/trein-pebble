@@ -1103,16 +1103,47 @@ function processTripData(data) {
 function sendTripsToWatch(trips) {
   var sendIndex = 0;
   liveTrips = [];
+  
+  // Filter out trips departed more than 2 minutes ago
+  var now = Math.floor(Date.now() / 1000);
+  var filteredTrips = trips.filter(function(trip) {
+    var firstLeg = trip && trip.legs && trip.legs[0];
+    if (!firstLeg || !firstLeg.origin) return true;
+    
+    var actualDepartureTime = firstLeg.origin.actualDateTime || firstLeg.origin.plannedDateTime;
+    var actualEpoch = convertIsoDateToEpoch(actualDepartureTime);
+    if (!actualEpoch) return true;
+    
+    // Keep if not departed yet, or departed within last 2 minutes
+    var secondsAgo = now - actualEpoch;
+    var isDeparted = firstLeg.origin.departureStatus === "DEPARTED";
+    return !isDeparted || secondsAgo <= 120;
+  });
+  
+  // Sort by soonest actual departure (upcoming first)
+  filteredTrips.sort(function(a, b) {
+    var aFirstLeg = a && a.legs && a.legs[0];
+    var bFirstLeg = b && b.legs && b.legs[0];
+    if (!aFirstLeg || !bFirstLeg) return 0;
+    
+    var aActual = aFirstLeg.origin.actualDateTime || aFirstLeg.origin.plannedDateTime;
+    var bActual = bFirstLeg.origin.actualDateTime || bFirstLeg.origin.plannedDateTime;
+    var aEpoch = convertIsoDateToEpoch(aActual) || 0;
+    var bEpoch = convertIsoDateToEpoch(bActual) || 0;
+    return aEpoch - bEpoch;
+  });
+  
+  console.log("sendTripsToWatch: filtered " + trips.length + " -> " + filteredTrips.length + " trips");
 
   function sendNextTrip() {
-    if (sendIndex >= trips.length) {
+    if (sendIndex >= filteredTrips.length) {
       flushPendingRoute();
-      sendLegData(trips);
+      sendLegData(filteredTrips);
       refreshLiveTrip(0);
       return;
     }
     try {
-    var trip = trips[sendIndex];
+    var trip = filteredTrips[sendIndex];
     var firstLeg = trip && trip.legs && trip.legs[0];
     var lastLeg = lastTrainLeg(trip);
     if (!firstLeg || !firstLeg.origin || !lastLeg || !lastLeg.destination) {
@@ -1161,7 +1192,7 @@ function sendTripsToWatch(trips) {
       platform: departurePlatform,
       lastSig: ""
     };
-    var departed = 0;
+    var departed = (firstLeg.origin.departureStatus === "DEPARTED") ? 1 : 0;
 
     if (sendIndex === 0) {
       var delayKey = actualDepartureTimeEpoch;
@@ -1182,7 +1213,8 @@ function sendTripsToWatch(trips) {
     }
 
     console.log("trip arr planned=" + extractTime(plannedArrivalTime) +
-                " actual=" + extractTime(actualArrivalTime));
+                " actual=" + extractTime(actualArrivalTime) +
+                " departed=" + departed);
     Pebble.sendAppMessage({
       "TRIP_INDEX": currentIndex,
       "TRIP_PLANNED_DEPARTURE_TIME": extractTime(plannedDepartureTime),
@@ -1196,7 +1228,7 @@ function sendTripsToWatch(trips) {
       "TRIP_PLATFORM": departurePlatform,
       "TRIP_DELAY": asStr(tripDelay, ""),
       "TRIP_DEPARTED": departed ? 1 : 0,
-      "TRIP_COUNT": trips.length
+      "TRIP_COUNT": filteredTrips.length
     }, function() {
       sendIndex++;
       // Wait 100ms before sending next message to avoid buffer overflow
