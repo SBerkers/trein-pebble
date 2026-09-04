@@ -236,9 +236,10 @@ function sendRouteError(code) {
 }
 var orsPendingCallbacks = [];
 var orsTimeoutHandle = null;
-function fetchOrsDuration(lat, lng, dest, profile, callback, isRetry) {
+function fetchOrsDuration(lat, lng, dest, profile, callback, authMode) {
+  authMode = authMode || 0;
   var key = trimKey(getOrsKey());
-  console.log("fetchOrsDuration START: key=" + (key ? "yes" : "no") + " dest=" + (dest ? "lat=" + dest.lat.toFixed(5) + ",lng=" + dest.lng.toFixed(5) : "no") + " lastStartCode=" + lastStartCode + " GPS=" + (lat != null ? lat.toFixed(5) + "," + lng.toFixed(5) : "none") + " profile=" + profile);
+  console.log("fetchOrsDuration START: key=" + (key ? "yes" : "no") + " dest=" + (dest ? "lat=" + dest.lat.toFixed(5) + ",lng=" + dest.lng.toFixed(5) : "no") + " lastStartCode=" + lastStartCode + " GPS=" + (lat != null ? lat.toFixed(5) + "," + lng.toFixed(5) : "none") + " profile=" + profile + " authMode=" + authMode);
   
   if (!key || !dest) {
     console.log("fetchOrsDuration ABORT: missing key or dest");
@@ -246,7 +247,7 @@ function fetchOrsDuration(lat, lng, dest, profile, callback, isRetry) {
     return;
   }
   
-  if (orsInFlight && !isRetry) {
+  if (orsInFlight && authMode === 0) {
     console.log("fetchOrsDuration DEFER: orsInFlight=true, cache=" + cachedDurationMin);
     if (cachedDurationMin != null) {
       callback(cachedDurationMin, 0);
@@ -267,10 +268,14 @@ function fetchOrsDuration(lat, lng, dest, profile, callback, isRetry) {
   
   var xhr = new XMLHttpRequest();
   xhr.timeout = 8000;
-  var url = "https://api.heigit.org/openrouteservice/v2/directions/" + profile;
+  var url = "https://api.heigit.org/openrouteservice/v2/directions/" + profile + "?api_key=" + encodeURIComponent(key);
   xhr.open("POST", url, true);
-  xhr.setRequestHeader("Authorization", key);
   xhr.setRequestHeader("Content-Type", "application/json");
+  if (authMode === 1) {
+    xhr.setRequestHeader("Authorization", "Bearer " + key);
+  } else if (authMode !== 2) {
+    xhr.setRequestHeader("Authorization", key);
+  }
   
   var handled = false;
   function handleResponse() {
@@ -284,9 +289,14 @@ function fetchOrsDuration(lat, lng, dest, profile, callback, isRetry) {
     console.log("ORS status: " + status + " readyState: " + xhr.readyState);
     
     if (status < 200 || status >= 300 || status === 0) {
-      if (!isRetry) {
-        console.log("ORS retry on status " + status);
-        fetchOrsDuration(lat, lng, dest, profile, callback, true);
+      var bodySnippet = "";
+      try {
+        bodySnippet = String(xhr.responseText || "").substring(0, 180);
+      } catch (e) {}
+      if (bodySnippet) console.log("ORS body: " + bodySnippet);
+      if (authMode < 2) {
+        console.log("ORS retry authMode " + (authMode + 1) + " on status " + status);
+        fetchOrsDuration(lat, lng, dest, profile, callback, authMode + 1);
         return;
       }
       console.log("ORS final fail status " + status);
@@ -315,9 +325,9 @@ function fetchOrsDuration(lat, lng, dest, profile, callback, isRetry) {
       console.log("ORS parse fail: " + e);
     }
     
-    if (!isRetry) {
-      console.log("ORS retry on parse fail");
-      fetchOrsDuration(lat, lng, dest, profile, callback, true);
+    if (authMode < 2) {
+      console.log("ORS retry on parse fail authMode " + (authMode + 1));
+      fetchOrsDuration(lat, lng, dest, profile, callback, authMode + 1);
       return;
     }
     console.log("ORS final fail parse");
@@ -624,7 +634,7 @@ function processStationData(data) {
     rememberStation(data.payload[j]);
     nearbyStations.push({
       code: data.payload[j].code,
-      name: data.payload[j].namen.middel
+      name: stationDisplayName(data.payload[j])
     });
   }
 
@@ -748,12 +758,55 @@ function abbreviateStation(name) {
   return name.substring(0, 14) + ".";
 }
 
+function stationDisplayName(st) {
+  if (!st) return "?";
+  if (typeof st === "string") return abbreviateStation(st);
+  var n = st.namen || st;
+  var name = (n.kort || n.middel || n.lang || st.name || st.naam || "");
+  if (!name && st.payload && st.payload.namen) {
+    name = st.payload.namen.kort || st.payload.namen.middel || "";
+  }
+  return abbreviateStation(name || "?");
+}
+
 function extractTime(dateTimeString) {
   if (!dateTimeString) return "";
   if (dateTimeString === "--:--") return "--:--";
   if (/^\d{2}:\d{2}$/.test(dateTimeString)) return dateTimeString;
   var match = String(dateTimeString).match(/T(\d{2}:\d{2})/);
   return match ? match[1] : "";
+}
+
+function originArrivalFromLeg(firstLeg, origin0, plannedDepEpoch) {
+  var iso = "";
+  var fallbackDep = 0;
+  if (firstLeg && firstLeg.stops && firstLeg.stops.length) {
+    var originName = origin0.name || "";
+    var originCode = origin0.stationCode || origin0.code || "";
+    for (var i = 0; i < firstLeg.stops.length; i++) {
+      var stop = firstLeg.stops[i];
+      if (!stop) continue;
+      var stopName = stop.name || "";
+      var stopCode = stop.stationCode || stop.code || "";
+      var match = (originCode && stopCode && String(stopCode).toUpperCase() === String(originCode).toUpperCase()) ||
+        (originName && stopName && stopName === originName) || i === 0;
+      if (!match) continue;
+      iso = stop.actualArrivalDateTime || stop.plannedArrivalDateTime || "";
+      if (iso) break;
+    }
+  }
+  if (!iso) {
+    iso = origin0.actualArrivalDateTime || origin0.plannedArrivalDateTime || "";
+  }
+  var epoch = convertIsoDateToEpoch(iso);
+  if (!epoch) {
+    fallbackDep = 1;
+    epoch = plannedDepEpoch;
+  }
+  var deltaMin = plannedDepEpoch && epoch ? Math.round((plannedDepEpoch - epoch) / 60) : 0;
+  console.log("origin arr iso=" + (iso ? extractTime(iso) : "none") +
+    " fallback_dep=" + fallbackDep + " delta_min=" + deltaMin);
+  return epoch;
 }
 
 function lastTrainLeg(trip) {
@@ -996,9 +1049,7 @@ function processTripData(data) {
     if (!actualArrivalTimeEpoch) {
       actualArrivalTimeEpoch = convertIsoDateToEpoch(plannedArrivalTime);
     }
-    var originArrivalIso = origin0.actualArrivalDateTime || origin0.plannedArrivalDateTime || "";
-    var originArrivalEpoch = convertIsoDateToEpoch(originArrivalIso);
-    if (!originArrivalEpoch) originArrivalEpoch = plannedDepartureTimeEpoch;
+    var originArrivalEpoch = originArrivalFromLeg(firstLeg, origin0, plannedDepartureTimeEpoch);
     
     if (sendIndex === 0) {
       var delayKey = actualDepartureTimeEpoch;
@@ -1054,8 +1105,8 @@ function fetchNearbyStations(lat, lng) {
   }
   if (typeof Pebble !== "undefined" && Pebble.platform === "pypkjs") {
     processStationData({ payload: [
-      { code: "bd", namen: { middel: "Breda" }, lat: 51.5958, lng: 4.779 },
-      { code: "ehv", namen: { middel: "Eindhoven Centraal" }, lat: 51.443, lng: 5.481 }
+      { code: "bd", namen: { kort: "Breda", middel: "Breda" }, lat: 51.5958, lng: 4.779 },
+      { code: "ehv", namen: { kort: "Eindhoven", middel: "Eindhoven Centraal" }, lat: 51.443, lng: 5.481 }
     ]});
     return;
   }
