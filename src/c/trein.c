@@ -394,12 +394,18 @@ static bool prv_countdown_is_emery(void) {
 }
 
 static GFont prv_over_numeric_font(void) {
-  /* OVER always uses LECO_42 on emery (dual or hero), matches mockup ~50px glyphs */
+  /* Emery OVER uses LECO_60 for ~42px glyphs (LECO_42 only ~29px) */
+  if (prv_countdown_is_emery()) {
+    return fonts_get_system_font(FONT_KEY_LECO_60_BOLD_NUMBERS_AM_PM);
+  }
   return fonts_get_system_font(prv_countdown_is_large() ? FONT_KEY_LECO_42_NUMBERS : FONT_KEY_LECO_20_BOLD_NUMBERS);
 }
 
 static GFont prv_hero_numeric_font(void) {
-  /* Hero mode uses LECO_42 on large displays */
+  /* Emery hero uses LECO_60 for larger glyphs */
+  if (prv_countdown_is_emery()) {
+    return fonts_get_system_font(FONT_KEY_LECO_60_BOLD_NUMBERS_AM_PM);
+  }
   return fonts_get_system_font(prv_countdown_is_large() ? FONT_KEY_LECO_42_NUMBERS : FONT_KEY_LECO_20_BOLD_NUMBERS);
 }
 
@@ -416,10 +422,10 @@ static GFont prv_over_text_font(void) {
 static void prv_set_sized_clock(TextLayer *layer, const char *text, bool hero) {
   if (!layer || !text) return;
   if (prv_leco_safe(text)) {
-    /* Emery OVER: always LECO_42 for hero mode */
+    /* Emery OVER: LECO_60 for ~42px ink (LECO_42 only ~29px) */
     if (hero && prv_countdown_is_emery()) {
-      text_layer_set_font(layer, fonts_get_system_font(FONT_KEY_LECO_42_NUMBERS));
-      APP_LOG(APP_LOG_LEVEL_DEBUG, "over font leco42 emery");
+      text_layer_set_font(layer, fonts_get_system_font(FONT_KEY_LECO_60_BOLD_NUMBERS_AM_PM));
+      APP_LOG(APP_LOG_LEVEL_DEBUG, "over font leco60 emery");
     } else {
       text_layer_set_font(layer, hero ? prv_hero_numeric_font() : prv_vertrek_numeric_font());
     }
@@ -565,8 +571,8 @@ static void prv_layout_countdown_clocks(bool hero, bool show_delay) {
   int delay_y;
 
   if (hero) {
-    /* Hero mode: OVER gets full cream height, delay under */
-    over_clock_h = is_emery ? 60 : (large ? 56 : 32);
+    /* Hero mode: OVER gets full cream height, delay under. LECO_60 needs ~68px */
+    over_clock_h = is_emery ? 68 : (large ? 56 : 32);
     delay_y = over_clock_y + over_clock_h + gap;
     layer_set_frame(text_layer_get_layer(s_app.countdown_ui.over_label_layer),
                     GRect(x_pad, over_lab_y, clock_w, lab_h));
@@ -587,8 +593,8 @@ static void prv_layout_countdown_clocks(bool hero, bool show_delay) {
   }
 
   /* Dual mode: delay sits BESIDE VERTREK (same row), not under */
-  /* OVER gets tall frame (~65px) for LECO_42 ~50px glyphs to match mockup */
-  over_clock_h = is_emery ? 65 : (large ? 58 : 38);
+  /* OVER gets tall frame (~70px) for LECO_60 ~42px glyphs */
+  over_clock_h = is_emery ? 70 : (large ? 58 : 38);
   int vtk_lab_y = over_clock_y + over_clock_h + gap;
   int vtk_clock_h = large ? 34 : 24;
   int vtk_clock_y = vtk_lab_y + lab_h;
