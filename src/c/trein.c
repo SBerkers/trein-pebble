@@ -135,7 +135,7 @@ static void prv_over_minus_update_proc(Layer *layer, GContext *ctx) {
   
   #ifdef PBL_COLOR
   /* Match OVER text color based on band */
-  GColor color = (s_mid_band_color == GColorRed) ? GColorWhite : GColorBlack;
+  GColor color = gcolor_equal(s_mid_band_color, GColorRed) ? GColorWhite : GColorBlack;
   graphics_context_set_stroke_color(ctx, color);
   #else
   graphics_context_set_stroke_color(ctx, GColorBlack);
