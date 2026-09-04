@@ -305,7 +305,7 @@ function fetchOrsDuration(lat, lng, dest, profile, callback) {
       finishFail();
       return;
     }
-    var url = ORS_HOSTS[hostIdx] + profile;
+    var url = ORS_HOSTS[hostIdx] + profile + "?api_key=" + encodeURIComponent(key);
     var xhr = new XMLHttpRequest();
     xhr.timeout = 8000;
     xhr.open("POST", url, true);

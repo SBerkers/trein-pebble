@@ -33,6 +33,9 @@ def build(ctx):
     for platform in ctx.env.TARGET_PLATFORMS:
         ctx.env = ctx.all_envs[platform]
         ctx.set_group(ctx.env.PLATFORM_NAME)
+        fixture = os.environ.get('TREIN_LAYOUT_FIXTURE')
+        if fixture not in (None, ''):
+            ctx.env.append_value('CFLAGS', ['-DTREIN_LAYOUT_FIXTURE=%d' % int(fixture)])
         app_elf = '{}/pebble-app.elf'.format(ctx.env.BUILD_DIR)
         ctx.pbl_build(source=ctx.path.ant_glob('src/c/**/*.c'), target=app_elf, bin_type='app')
 
