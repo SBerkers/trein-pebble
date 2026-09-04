@@ -170,6 +170,7 @@ typedef struct {
   int arrivals_epoch[MAX_TRIPS];
   int planned_departures_epoch[MAX_TRIPS];
   int origin_arrivals_epoch[MAX_TRIPS];
+  bool departed[MAX_TRIPS];
   int count;
   uint8_t received_mask;
   bool loaded;

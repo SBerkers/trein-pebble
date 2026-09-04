@@ -48,6 +48,7 @@ var DEFAULT_API_KEY = "";
 var BASE_API_URL = "https://gateway.apiportal.ns.nl";
 var NEAREST_STATIONS_PATH = "/nsapp-stations/v2/nearest";
 var TRIP_PATH = "/reisinformatie-api/api/v3/trips";
+var DEPARTURES_PATH = "/reisinformatie-api/api/v2/departures";
 
 function asStr(v, fallback) {
   if (v == null) return fallback;
@@ -166,6 +167,10 @@ function addFavouriteFromWatch(code, name) {
 var lastStartCode = "", lastDestCode = "", stationCoords = {}, lastRouted = null, cachedDurationMin = null, orsInFlight = false, tripsSentOnce = false, routeTickMissedDest = false;
 var lastRouteGps = null, lastStationGps = null, tripsInFlight = false, pendingRouteTick = null, routeAfterTrips = false;
 var lastSentDelay = null;
+var liveTrips = [];
+var liveInFlight = false;
+var orsHostIndex = 0;
+var orsFailCached = false;
 function haversineMeters(a, b, c, d) {
   var P = Math.PI / 180, dLat = (c - a) * P, dLon = (d - b) * P;
   var x = Math.sin(dLat / 2), y = Math.sin(dLon / 2);
@@ -236,18 +241,26 @@ function sendRouteError(code) {
 }
 var orsPendingCallbacks = [];
 var orsTimeoutHandle = null;
-function fetchOrsDuration(lat, lng, dest, profile, callback, authMode) {
-  authMode = authMode || 0;
+var ORS_HOSTS = [
+  "https://api.openrouteservice.org/v2/directions/",
+  "https://api.heigit.org/openrouteservice/v2/directions/"
+];
+function fetchOrsDuration(lat, lng, dest, profile, callback) {
   var key = trimKey(getOrsKey());
-  console.log("fetchOrsDuration START: key=" + (key ? "yes" : "no") + " dest=" + (dest ? "lat=" + dest.lat.toFixed(5) + ",lng=" + dest.lng.toFixed(5) : "no") + " lastStartCode=" + lastStartCode + " GPS=" + (lat != null ? lat.toFixed(5) + "," + lng.toFixed(5) : "none") + " profile=" + profile + " authMode=" + authMode);
+  console.log("fetchOrsDuration START: key=" + (key ? "yes" : "no") + " dest=" + (dest ? "lat=" + dest.lat.toFixed(5) + ",lng=" + dest.lng.toFixed(5) : "no") + " lastStartCode=" + lastStartCode + " GPS=" + (lat != null ? lat.toFixed(5) + "," + lng.toFixed(5) : "none") + " profile=" + profile + " host=" + orsHostIndex);
   
   if (!key || !dest) {
     console.log("fetchOrsDuration ABORT: missing key or dest");
     callback(null, key ? 2 : 1);
     return;
   }
+  if (orsFailCached) {
+    console.log("fetchOrsDuration skip: previous 403/fail cached");
+    callback(null, 2);
+    return;
+  }
   
-  if (orsInFlight && authMode === 0) {
+  if (orsInFlight) {
     console.log("fetchOrsDuration DEFER: orsInFlight=true, cache=" + cachedDurationMin);
     if (cachedDurationMin != null) {
       callback(cachedDurationMin, 0);
@@ -265,87 +278,81 @@ function fetchOrsDuration(lat, lng, dest, profile, callback, authMode) {
     orsInFlight = false;
     orsTimeoutHandle = null;
   }, 8000);
-  
-  var xhr = new XMLHttpRequest();
-  xhr.timeout = 8000;
-  var url = "https://api.heigit.org/openrouteservice/v2/directions/" + profile + "?api_key=" + encodeURIComponent(key);
-  xhr.open("POST", url, true);
-  xhr.setRequestHeader("Content-Type", "application/json");
-  if (authMode === 1) {
-    xhr.setRequestHeader("Authorization", "Bearer " + key);
-  } else if (authMode !== 2) {
-    xhr.setRequestHeader("Authorization", key);
-  }
-  
-  var handled = false;
-  function handleResponse() {
-    if (handled) return;
-    handled = true;
+
+  function finishOk(mins) {
     if (orsTimeoutHandle) clearTimeout(orsTimeoutHandle);
     orsTimeoutHandle = null;
     orsInFlight = false;
-    
-    var status = xhr.status || 0;
-    console.log("ORS status: " + status + " readyState: " + xhr.readyState);
-    
-    if (status < 200 || status >= 300 || status === 0) {
-      var bodySnippet = "";
-      try {
-        bodySnippet = String(xhr.responseText || "").substring(0, 180);
-      } catch (e) {}
-      if (bodySnippet) console.log("ORS body: " + bodySnippet);
-      if (authMode < 2) {
-        console.log("ORS retry authMode " + (authMode + 1) + " on status " + status);
-        fetchOrsDuration(lat, lng, dest, profile, callback, authMode + 1);
-        return;
-      }
-      console.log("ORS final fail status " + status);
-      callback(null, 2);
-      while (orsPendingCallbacks.length > 0) {
-        var cb = orsPendingCallbacks.shift();
-        cb(null, 2);
-      }
-      return;
-    }
-    
-    try {
-      var sec = parseOrsDurationSec(JSON.parse(xhr.responseText));
-      if (typeof sec === "number") {
-        lastRouted = { lat: lat, lng: lng };
-        cachedDurationMin = Math.max(0, Math.round(sec / 60));
-        console.log("ORS success: " + sec + "s = " + cachedDurationMin + " min");
-        callback(cachedDurationMin, 0);
-        while (orsPendingCallbacks.length > 0) {
-          var cb = orsPendingCallbacks.shift();
-          cb(cachedDurationMin, 0);
-        }
-        return;
-      }
-    } catch (e) {
-      console.log("ORS parse fail: " + e);
-    }
-    
-    if (authMode < 2) {
-      console.log("ORS retry on parse fail authMode " + (authMode + 1));
-      fetchOrsDuration(lat, lng, dest, profile, callback, authMode + 1);
-      return;
-    }
-    console.log("ORS final fail parse");
-    callback(null, 2);
+    lastRouted = { lat: lat, lng: lng };
+    cachedDurationMin = mins;
+    callback(mins, 0);
     while (orsPendingCallbacks.length > 0) {
-      var cb = orsPendingCallbacks.shift();
-      cb(null, 2);
+      orsPendingCallbacks.shift()(mins, 0);
     }
   }
-  
-  xhr.onloadend = handleResponse;
-  xhr.onreadystatechange = function() {
-    if (xhr.readyState === 4) {
-      handleResponse();
+  function finishFail() {
+    if (orsTimeoutHandle) clearTimeout(orsTimeoutHandle);
+    orsTimeoutHandle = null;
+    orsInFlight = false;
+    callback(null, 2);
+    while (orsPendingCallbacks.length > 0) {
+      orsPendingCallbacks.shift()(null, 2);
     }
-  };
-  
-  xhr.send(JSON.stringify({ coordinates: [[lng, lat], [dest.lng, dest.lat]] }));
+  }
+
+  function tryHost(hostIdx) {
+    if (hostIdx >= ORS_HOSTS.length) {
+      console.log("ORS final fail: all hosts");
+      finishFail();
+      return;
+    }
+    var url = ORS_HOSTS[hostIdx] + profile;
+    var xhr = new XMLHttpRequest();
+    xhr.timeout = 8000;
+    xhr.open("POST", url, true);
+    xhr.setRequestHeader("Content-Type", "application/json");
+    xhr.setRequestHeader("Accept", "application/json, application/geo+json; charset=utf-8");
+    xhr.setRequestHeader("Authorization", key);
+    var handled = false;
+    function handleResponse() {
+      if (handled) return;
+      handled = true;
+      var status = xhr.status || 0;
+      var bodySnippet = "";
+      try { bodySnippet = String(xhr.responseText || "").substring(0, 180); } catch (e) {}
+      console.log("ORS status: " + status + " host=" + hostIdx);
+      if (bodySnippet) console.log("ORS body: " + bodySnippet);
+      if (status >= 200 && status < 300) {
+        try {
+          var sec = parseOrsDurationSec(JSON.parse(xhr.responseText));
+          if (typeof sec === "number") {
+            orsHostIndex = hostIdx;
+            console.log("ORS success: " + sec + "s = " + Math.round(sec / 60) + " min");
+            finishOk(Math.max(0, Math.round(sec / 60)));
+            return;
+          }
+        } catch (e) {
+          console.log("ORS parse fail: " + e);
+        }
+      }
+      if (hostIdx + 1 < ORS_HOSTS.length) {
+        tryHost(hostIdx + 1);
+        return;
+      }
+      if (status === 403 || status === 401) orsFailCached = true;
+      finishFail();
+    }
+    xhr.onloadend = handleResponse;
+    xhr.onerror = handleResponse;
+    xhr.send(JSON.stringify({
+      coordinates: [[lng, lat], [dest.lng, dest.lat]],
+      instructions: false,
+      geometry: false,
+      elevation: false
+    }));
+  }
+
+  tryHost(orsHostIndex);
 }
 function runRouteFrom(lat, lng, vervoer, force) {
   lastRouteGps = { lat: lat, lng: lng };
@@ -495,7 +502,11 @@ Pebble.addEventListener("webviewclosed", function(e) {
       localStorage.setItem("api_key", trimKey(settings.api_key));
       console.log("Saved new API key.");
     }
-    if (settings.routing_api_key != null) lsSet("routing_api_key", trimKey(settings.routing_api_key));
+    if (settings.routing_api_key != null) {
+      lsSet("routing_api_key", trimKey(settings.routing_api_key));
+      orsFailCached = false;
+      orsHostIndex = 0;
+    }
     if (settings.station_offsets != null) {
       var off = settings.station_offsets;
       lsSet("station_offsets", typeof off === "string" ? off : JSON.stringify(off));
@@ -556,10 +567,13 @@ Pebble.addEventListener("appmessage", function(e) {
     var reistijd = e.payload.SETTINGS_REISTIJD;
     if (reistijd == null) reistijd = parseInt(lsGet("settings_reistijd", "1"), 10);
     else lsSet("settings_reistijd", String(reistijd));
+    var sel = e.payload.TRIP_INDEX;
+    if (sel == null || sel < 0) sel = 0;
+    refreshLiveTrip(sel);
     if (parseInt(reistijd, 10) === 0) {
       sendRouteToWatch(null, false);
     } else {
-      handleRouteTick(vervoer, true);
+      handleRouteTick(vervoer, cachedDurationMin == null);
     }
   } else if (e.payload.SETTINGS_VERVOER != null && parseInt(lsGet("settings_reistijd", "1"), 10) !== 0) {
     lastRouted = null;
@@ -674,7 +688,7 @@ function reportNsFailure(kind, status) {
   if (kind === "trips") {
     flushPendingRoute();
   }
-  if (kind === "lookup") return;
+  if (kind === "lookup" || kind === "departures") return;
   var missingKey = !getApiKey() || status === 401 || status === 403;
   if (kind === "trips") {
     if (!tripsSentOnce && missingKey) {
@@ -708,6 +722,10 @@ function sendRequest(url, sendToWatchFunction, kind){
         data = JSON.parse(xhr.responseText);
       } catch (e) {
         console.log("Error parsing JSON response: " + e);
+        if (kind === "departures") {
+          sendToWatchFunction({ payload: { departures: [] } });
+          return;
+        }
         reportNsFailure(kind, xhr.status);
         return;
       }
@@ -715,12 +733,20 @@ function sendRequest(url, sendToWatchFunction, kind){
       sendToWatchFunction(data);
     } else {
       console.log("Did not receive OK. Status: " + xhr.status);
+      if (kind === "departures") {
+        sendToWatchFunction({ payload: { departures: [] } });
+        return;
+      }
       reportNsFailure(kind, xhr.status);
     }
   };
 
   xhr.onerror = function() {
     console.log("Fetch error: A network error occurred.");
+    if (kind === "departures") {
+      sendToWatchFunction({ payload: { departures: [] } });
+      return;
+    }
     reportNsFailure(kind, 0);
   };
   
@@ -807,6 +833,78 @@ function originArrivalFromLeg(firstLeg, origin0, plannedDepEpoch) {
   console.log("origin arr iso=" + (iso ? extractTime(iso) : "none") +
     " fallback_dep=" + fallbackDep + " delta_min=" + deltaMin);
   return epoch;
+}
+
+function fetchLiveDepartures(stationCode, callback) {
+  if (!stationCode || !getApiKey()) {
+    callback([]);
+    return;
+  }
+  var url = BASE_API_URL + DEPARTURES_PATH + "?station=" +
+    encodeURIComponent(String(stationCode).toLowerCase()) + "&maxJourneys=12";
+  sendRequest(url, function(data) {
+    callback((data.payload && data.payload.departures) || []);
+  }, "departures");
+}
+
+function matchLiveDeparture(deps, trip) {
+  if (!deps || !deps.length || !trip) return null;
+  var best = null;
+  var bestScore = 0;
+  for (var i = 0; i < deps.length; i++) {
+    var d = deps[i];
+    if (!d) continue;
+    var score = 0;
+    var dnum = d.product && d.product.number ? String(d.product.number) : "";
+    if (trip.trainNumber && dnum && dnum === String(trip.trainNumber)) score += 8;
+    var depPlanned = convertIsoDateToEpoch(d.plannedDateTime);
+    if (trip.plannedDepEpoch && depPlanned && Math.abs(depPlanned - trip.plannedDepEpoch) <= 120) score += 4;
+    var dplat = String(d.plannedTrack || d.actualTrack || "");
+    if (trip.platform && dplat && trip.platform !== "?" && dplat === String(trip.platform)) score += 2;
+    if (score > bestScore) {
+      bestScore = score;
+      best = d;
+    }
+  }
+  return bestScore >= 4 ? best : null;
+}
+
+function refreshLiveTrip(tripIndex) {
+  if (liveInFlight || !lastStartCode || !liveTrips.length) return;
+  if (tripIndex < 0 || tripIndex >= liveTrips.length || !liveTrips[tripIndex]) tripIndex = 0;
+  var trip = liveTrips[tripIndex];
+  if (!trip) return;
+  liveInFlight = true;
+  fetchLiveDepartures(lastStartCode, function(deps) {
+    liveInFlight = false;
+    var match = matchLiveDeparture(deps, trip);
+    if (!match) {
+      console.log("live trip: no board match idx=" + tripIndex);
+      return;
+    }
+    var planned = convertIsoDateToEpoch(match.plannedDateTime);
+    var actual = convertIsoDateToEpoch(match.actualDateTime) || planned;
+    var delayMin = 0;
+    if (actual && planned && actual > planned) {
+      delayMin = Math.round((actual - planned) / 60);
+    }
+    var cancelled = match.cancelled === true;
+    var departed = match.departureStatus === "DEPARTED";
+    var platform = asStr(match.actualTrack || match.plannedTrack, trip.platform || "?");
+    var delayStr = cancelled ? "Cancelled" : (delayMin > 0 ? "+" + delayMin : "");
+    var sig = actual + "|" + delayStr + "|" + (departed ? 1 : 0) + "|" + platform;
+    if (trip.lastSig === sig) return;
+    trip.lastSig = sig;
+    trip.platform = platform;
+    console.log("live trip idx=" + tripIndex + " delay=" + delayStr + " departed=" + departed + " status=" + match.departureStatus);
+    Pebble.sendAppMessage({
+      "TRIP_INDEX": tripIndex,
+      "TRIP_DEPARTURE_TIME_EPOCH": actual,
+      "TRIP_DELAY": delayStr,
+      "TRIP_DEPARTED": departed ? 1 : 0,
+      "TRIP_PLATFORM": platform
+    }, function() {}, function() {});
+  });
 }
 
 function lastTrainLeg(trip) {
@@ -997,14 +1095,18 @@ function processTripData(data) {
     handleRouteTick(parseInt(lsGet("settings_vervoer", "0"), 10), true);
   }
 
-  // Send each trip to the watch with a delay to avoid buffer overflow
+  sendTripsToWatch(trips);
+}
+
+function sendTripsToWatch(trips) {
   var sendIndex = 0;
+  liveTrips = [];
 
   function sendNextTrip() {
     if (sendIndex >= trips.length) {
-      /* All TRIP_* messages sent - flush pending route NOW so ORS can run */
       flushPendingRoute();
       sendLegData(trips);
+      refreshLiveTrip(0);
       return;
     }
     try {
@@ -1030,7 +1132,7 @@ function processTripData(data) {
 
     var delay = (Date.parse(actualDepartureTime)-Date.parse(plannedDepartureTime))/60000;
     if (delay > 0 && tripDelay !== "Cancelled") {
-      tripDelay = "+" + delay;
+      tripDelay = "+" + Math.round(delay);
     }
 
     if (trip.status == "CANCELLED") {
@@ -1050,7 +1152,15 @@ function processTripData(data) {
       actualArrivalTimeEpoch = convertIsoDateToEpoch(plannedArrivalTime);
     }
     var originArrivalEpoch = originArrivalFromLeg(firstLeg, origin0, plannedDepartureTimeEpoch);
-    
+    var productNumber = firstLeg.product && (firstLeg.product.number || "");
+    liveTrips[currentIndex] = {
+      trainNumber: productNumber ? String(productNumber) : "",
+      plannedDepEpoch: plannedDepartureTimeEpoch,
+      platform: departurePlatform,
+      lastSig: ""
+    };
+    var departed = 0;
+
     if (sendIndex === 0) {
       var delayKey = actualDepartureTimeEpoch;
       if (lastSentDelay !== null && lastSentDelay !== delayKey && tripDelay !== "On time") {
@@ -1083,6 +1193,7 @@ function processTripData(data) {
       "TRIP_TRANSFERS": tripTransfers,
       "TRIP_PLATFORM": departurePlatform,
       "TRIP_DELAY": asStr(tripDelay, ""),
+      "TRIP_DEPARTED": departed ? 1 : 0,
       "TRIP_COUNT": trips.length
     }, function() {
       sendIndex++;
@@ -1169,6 +1280,7 @@ function emulatorInjectDelayTrip(start, destination) {
 function requestTrips(start, destination) {
   lastStartCode = start;
   lastDestCode = destination;
+  liveTrips = [];
   tripsInFlight = true;
   if (parseInt(lsGet("settings_reistijd", "1"), 10) !== 0) {
     routeAfterTrips = true;
