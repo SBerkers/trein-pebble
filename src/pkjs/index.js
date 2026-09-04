@@ -1018,6 +1018,8 @@ function processTripData(data) {
       return;
     }
 
+    console.log("trip arr planned=" + extractTime(plannedArrivalTime) +
+                " actual=" + extractTime(actualArrivalTime));
     Pebble.sendAppMessage({
       "TRIP_INDEX": currentIndex,
       "TRIP_PLANNED_DEPARTURE_TIME": extractTime(plannedDepartureTime),

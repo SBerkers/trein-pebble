@@ -36,7 +36,7 @@ static void prv_loading_show_timeout(void *data);
 static void prv_arm_loading_fail(void);
 static void prv_pop_alpha_timeout(void *data);
 static void prv_pop_stations_timeout(void *data);
-static void prv_deferred_menu_destroy_timeout(void *data);
+static void prv_destroy_dest_menu_layer(void);
 static void prv_noop_click_config(void *context);
 static void prv_present_countdown(void);
 static void prv_countdown_click_config_provider(void *context);
@@ -867,8 +867,16 @@ static void prv_update_countdown_display() {
     text_layer_set_text(s_app.countdown_ui.departure_time_layer, s_app.buffers.departure_time_buffer);
   }
 
-  prv_copy_hhmm(s_app.buffers.arrival_time_buffer, sizeof(s_app.buffers.arrival_time_buffer),
-                s_app.trips.planned_arrivals[tidx]);
+  {
+    const char *arr_src = s_app.trips.planned_arrivals[tidx];
+    if (!arr_src || !arr_src[0] || arr_src[0] == '-') {
+      arr_src = s_app.trips.arrivals[tidx];
+    }
+    prv_copy_hhmm(s_app.buffers.arrival_time_buffer, sizeof(s_app.buffers.arrival_time_buffer),
+                  arr_src);
+    APP_LOG(APP_LOG_LEVEL_DEBUG, "footer arr planned=%s actual=%s",
+            s_app.trips.planned_arrivals[tidx], s_app.trips.arrivals[tidx]);
+  }
   if (s_app.countdown_ui.arrival_time_layer && s_app.buffers.arrival_time_buffer[0]) {
     text_layer_set_text(s_app.countdown_ui.arrival_time_layer, s_app.buffers.arrival_time_buffer);
   }
@@ -1049,7 +1057,13 @@ static void prv_menu_window_load(Window *window) {
   menu_layer_set_selected_index(s_app.menu_layers.menu_layer, index, MenuRowAlignCenter, false);
 }
 
-static void prv_menu_window_unload(Window *window) { menu_layer_destroy(s_app.menu_layers.menu_layer); }
+static void prv_menu_window_unload(Window *window) {
+  (void)window;
+  if (s_app.menu_layers.menu_layer) {
+    menu_layer_destroy(s_app.menu_layers.menu_layer);
+    s_app.menu_layers.menu_layer = NULL;
+  }
+}
 
 static uint16_t prv_alpha_menu_get_num_rows_callback(MenuLayer *menu_layer, uint16_t section_index, void *context) {
   return alphabet_index[s_app.state.selected_alphabet_index].count;
@@ -1091,7 +1105,13 @@ static void prv_alpha_menu_window_load(Window *window) {
   layer_add_child(window_layer, menu_layer_get_layer(s_app.menu_layers.alpha_menu_layer));
 }
 
-static void prv_alpha_menu_window_unload(Window *window) { menu_layer_destroy(s_app.menu_layers.alpha_menu_layer); }
+static void prv_alpha_menu_window_unload(Window *window) {
+  (void)window;
+  if (s_app.menu_layers.alpha_menu_layer) {
+    menu_layer_destroy(s_app.menu_layers.alpha_menu_layer);
+    s_app.menu_layers.alpha_menu_layer = NULL;
+  }
+}
 
 static uint16_t prv_dest_menu_get_num_sections_callback(MenuLayer *menu_layer, void *context) {
   return (s_app.favourites.count > 0) ? 3 : 2;
@@ -1231,26 +1251,24 @@ static void prv_dest_menu_window_load(Window *window) {
 
 static void prv_dest_menu_window_unload(Window *window) {
   (void)window;
-  APP_LOG(APP_LOG_LEVEL_DEBUG, "dest_menu_window_unload: heap=%d", (int)heap_bytes_free());
+  APP_LOG(APP_LOG_LEVEL_DEBUG, "dest_menu_window_unload: heap=%d has_layer=%d",
+          (int)heap_bytes_free(), s_app.menu_layers.dest_menu_layer ? 1 : 0);
   if (s_app.state.loading_show_timer) {
     app_timer_cancel(s_app.state.loading_show_timer);
     s_app.state.loading_show_timer = NULL;
   }
   prv_destroy_loading_ui();
-  
-  /* If countdown is being shown, defer menu_layer destruction to avoid firmware crash */
-  if (s_app.windows.countdown_window && 
+
+  /* Countdown is on the stack: dest_menu_layer must already have been destroyed
+   * in prv_present_countdown. Destroying a MenuLayer after this window unload
+   * crashes Time 2 firmware (qemu often does not). */
+  if (s_app.windows.countdown_window &&
       window_stack_contains_window(s_app.windows.countdown_window)) {
-    APP_LOG(APP_LOG_LEVEL_DEBUG, "dest_menu_window_unload: countdown active, deferring menu_layer destruction");
-    /* Menu layer will be destroyed by timer from countdown_window_load */
+    APP_LOG(APP_LOG_LEVEL_DEBUG, "dest_menu_window_unload: countdown active, not destroying layer");
     return;
   }
-  
-  if (s_app.menu_layers.dest_menu_layer) {
-    APP_LOG(APP_LOG_LEVEL_DEBUG, "dest_menu_window_unload: destroying menu_layer immediately, heap=%d", (int)heap_bytes_free());
-    menu_layer_destroy(s_app.menu_layers.dest_menu_layer);
-    s_app.menu_layers.dest_menu_layer = NULL;
-  }
+
+  prv_destroy_dest_menu_layer();
 }
 
 static void prv_inbox_received_handler(DictionaryIterator *iter, void *context) {
@@ -1859,14 +1877,18 @@ static void prv_pop_stations_timeout(void *data) {
   prv_pop_station_windows();
 }
 
-static void prv_deferred_menu_destroy_timeout(void *data) {
-  (void)data;
-  s_app.state.deferred_menu_destroy_timer = NULL;
-  if (s_app.menu_layers.dest_menu_layer) {
-    APP_LOG(APP_LOG_LEVEL_DEBUG, "Deferred: destroying dest_menu_layer, heap=%d", (int)heap_bytes_free());
-    menu_layer_destroy(s_app.menu_layers.dest_menu_layer);
-    s_app.menu_layers.dest_menu_layer = NULL;
+static void prv_destroy_dest_menu_layer(void) {
+  if (s_app.state.deferred_menu_destroy_timer) {
+    app_timer_cancel(s_app.state.deferred_menu_destroy_timer);
+    s_app.state.deferred_menu_destroy_timer = NULL;
   }
+  if (!s_app.menu_layers.dest_menu_layer) return;
+  APP_LOG(APP_LOG_LEVEL_DEBUG, "destroy dest_menu_layer heap=%d", (int)heap_bytes_free());
+  if (s_app.windows.dest_menu_window) {
+    window_set_click_config_provider(s_app.windows.dest_menu_window, prv_noop_click_config);
+  }
+  menu_layer_destroy(s_app.menu_layers.dest_menu_layer);
+  s_app.menu_layers.dest_menu_layer = NULL;
 }
 
 static void prv_present_countdown(void) {
@@ -1874,9 +1896,22 @@ static void prv_present_countdown(void) {
     app_timer_cancel(s_app.state.loading_show_timer);
     s_app.state.loading_show_timer = NULL;
   }
-  prv_destroy_loading_ui();
-  
-  /* Create countdown window first to avoid MenuLayer callback crash */
+
+  /* Inbox path, not MenuLayer select: drop other station menus and dest MenuLayer
+   * before countdown alloc. Time 2 crashes if we menu_layer_destroy after the
+   * parent window has already unloaded. Keep the loading overlay until countdown
+   * is on top so dest does not flash empty. */
+  if (s_app.windows.alpha_menu_window &&
+      window_stack_contains_window(s_app.windows.alpha_menu_window)) {
+    window_stack_remove(s_app.windows.alpha_menu_window, false);
+  }
+  if (s_app.windows.menu_window &&
+      window_stack_contains_window(s_app.windows.menu_window)) {
+    window_stack_remove(s_app.windows.menu_window, false);
+  }
+  prv_destroy_dest_menu_layer();
+  APP_LOG(APP_LOG_LEVEL_DEBUG, "present_countdown after menu free heap=%d", (int)heap_bytes_free());
+
   if (!s_app.windows.countdown_window) {
     s_app.windows.countdown_window = window_create();
     if (!s_app.windows.countdown_window) return; /* Abort on NULL */
@@ -1885,15 +1920,15 @@ static void prv_present_countdown(void) {
     });
     window_set_click_config_provider(s_app.windows.countdown_window, prv_countdown_click_config_provider);
   }
-  
-  /* Push countdown window first */
+
   if (!window_stack_contains_window(s_app.windows.countdown_window)) {
     window_stack_push(s_app.windows.countdown_window, true);
   } else if (s_app.countdown_ui.vertrek_time_layer) {
     prv_update_countdown_display();
   }
-  
-  /* Schedule station window removal 60ms later to avoid destroying MenuLayer in callback */
+
+  prv_destroy_loading_ui();
+
   if (s_app.state.pop_stations_timer) {
     app_timer_cancel(s_app.state.pop_stations_timer);
   }
@@ -2272,7 +2307,7 @@ static bool prv_cd_alive(void *p) {
   return false;
 }
 
- static void prv_countdown_window_load(Window *window) {
+static void prv_countdown_window_load(Window *window) {
   APP_LOG(APP_LOG_LEVEL_DEBUG, "countdown_window_load: heap=%d", (int)heap_bytes_free());
   Layer *window_layer = window_get_root_layer(window);
   GRect bounds = layer_get_bounds(window_layer);
@@ -2519,15 +2554,8 @@ static bool prv_cd_alive(void *p) {
   s_app.state.refresh_timer = app_timer_register(30000, prv_refresh_timer_callback, NULL);
   prv_send_route_request();
 
-  /* Schedule deferred destruction of dest_menu_layer after load completes */
-  if (s_app.menu_layers.dest_menu_layer) {
-    if (s_app.state.deferred_menu_destroy_timer) {
-      app_timer_cancel(s_app.state.deferred_menu_destroy_timer);
-    }
-    APP_LOG(APP_LOG_LEVEL_DEBUG, "countdown_window_load: scheduling deferred menu_layer destruction");
-    s_app.state.deferred_menu_destroy_timer = app_timer_register(100, prv_deferred_menu_destroy_timeout, NULL);
-  }
-
+  APP_LOG(APP_LOG_LEVEL_DEBUG, "countdown_window_load done heap=%d has_dest_layer=%d",
+          (int)heap_bytes_free(), s_app.menu_layers.dest_menu_layer ? 1 : 0);
   prv_update_countdown_display();
 }
 
