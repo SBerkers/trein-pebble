@@ -416,7 +416,13 @@ static GFont prv_over_text_font(void) {
 static void prv_set_sized_clock(TextLayer *layer, const char *text, bool hero) {
   if (!layer || !text) return;
   if (prv_leco_safe(text)) {
-    text_layer_set_font(layer, hero ? prv_hero_numeric_font() : prv_vertrek_numeric_font());
+    /* Emery OVER: always LECO_42 for hero mode */
+    if (hero && prv_countdown_is_emery()) {
+      text_layer_set_font(layer, fonts_get_system_font(FONT_KEY_LECO_42_NUMBERS));
+      APP_LOG(APP_LOG_LEVEL_DEBUG, "over font leco42 emery");
+    } else {
+      text_layer_set_font(layer, hero ? prv_hero_numeric_font() : prv_vertrek_numeric_font());
+    }
   } else {
     text_layer_set_font(layer, hero ? prv_over_text_font()
         : fonts_get_system_font(prv_countdown_is_large() ? FONT_KEY_GOTHIC_18_BOLD : FONT_KEY_GOTHIC_14_BOLD));
@@ -592,7 +598,8 @@ static void prv_layout_countdown_clocks(bool hero, bool show_delay) {
   int delay_w = show_delay ? (clock_w - vtk_clock_w) : 0;
   int delay_x = x_pad + vtk_clock_w;
 
-  text_layer_set_text_alignment(s_app.countdown_ui.over_time_layer, GTextAlignmentLeft);
+  /* OVER centered in dual mode for better visual balance */
+  text_layer_set_text_alignment(s_app.countdown_ui.over_time_layer, GTextAlignmentCenter);
   if (s_app.countdown_ui.vertrek_time_layer) {
     text_layer_set_text_alignment(s_app.countdown_ui.vertrek_time_layer, GTextAlignmentLeft);
   }
@@ -2565,7 +2572,7 @@ static void prv_countdown_window_load(Window *window) {
   GFont chrome_time_font, chrome_name_font;
   
   if (is_emery) {
-    side_slot = 56;  /* Reduced from 60 to give more width for station names */
+    side_slot = 56;
     time_w = side_slot;
     bar_time_h = 30;
     bar_name_h = 22;
@@ -2573,8 +2580,9 @@ static void prv_countdown_window_load(Window *window) {
     bar_name_y = (top_bar - bar_name_h) / 2;
     bot_time_y = bounds.size.h - bot_bar + (bot_bar - bar_time_h) / 2;
     bot_name_y = bounds.size.h - bot_bar + (bot_bar - bar_name_h) / 2;
-    name_x = side_slot;
-    name_w = bounds.size.w - 2 * side_slot;  /* 200 - 112 = 88px for names */
+    /* Names full width: times on separate row, no inset needed */
+    name_x = 0;
+    name_w = bounds.size.w;
     chrome_time_font = fonts_get_system_font(FONT_KEY_GOTHIC_24_BOLD);
     chrome_name_font = fonts_get_system_font(FONT_KEY_GOTHIC_18_BOLD);
   } else {
