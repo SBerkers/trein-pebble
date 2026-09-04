@@ -396,7 +396,11 @@ static bool prv_countdown_is_emery(void) {
 static GFont prv_over_numeric_font(void) {
   /* Emery OVER uses LECO_60 for ~42px glyphs (LECO_42 only ~29px) */
   if (prv_countdown_is_emery()) {
+#if defined(FONT_KEY_LECO_60_BOLD_NUMBERS_AM_PM)
     return fonts_get_system_font(FONT_KEY_LECO_60_BOLD_NUMBERS_AM_PM);
+#else
+    return fonts_get_system_font(FONT_KEY_LECO_42_NUMBERS);
+#endif
   }
   return fonts_get_system_font(prv_countdown_is_large() ? FONT_KEY_LECO_42_NUMBERS : FONT_KEY_LECO_20_BOLD_NUMBERS);
 }
@@ -404,7 +408,11 @@ static GFont prv_over_numeric_font(void) {
 static GFont prv_hero_numeric_font(void) {
   /* Emery hero uses LECO_60 for larger glyphs */
   if (prv_countdown_is_emery()) {
+#if defined(FONT_KEY_LECO_60_BOLD_NUMBERS_AM_PM)
     return fonts_get_system_font(FONT_KEY_LECO_60_BOLD_NUMBERS_AM_PM);
+#else
+    return fonts_get_system_font(FONT_KEY_LECO_42_NUMBERS);
+#endif
   }
   return fonts_get_system_font(prv_countdown_is_large() ? FONT_KEY_LECO_42_NUMBERS : FONT_KEY_LECO_20_BOLD_NUMBERS);
 }
@@ -424,8 +432,13 @@ static void prv_set_sized_clock(TextLayer *layer, const char *text, bool hero) {
   if (prv_leco_safe(text)) {
     /* Emery OVER: LECO_60 for ~42px ink (LECO_42 only ~29px) */
     if (hero && prv_countdown_is_emery()) {
+#if defined(FONT_KEY_LECO_60_BOLD_NUMBERS_AM_PM)
       text_layer_set_font(layer, fonts_get_system_font(FONT_KEY_LECO_60_BOLD_NUMBERS_AM_PM));
       APP_LOG(APP_LOG_LEVEL_DEBUG, "over font leco60 emery");
+#else
+      text_layer_set_font(layer, fonts_get_system_font(FONT_KEY_LECO_42_NUMBERS));
+      APP_LOG(APP_LOG_LEVEL_DEBUG, "over font leco42 emery");
+#endif
     } else {
       text_layer_set_font(layer, hero ? prv_hero_numeric_font() : prv_vertrek_numeric_font());
     }
