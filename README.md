@@ -118,6 +118,8 @@ The countdown screen shows two timers:
 
 ## Development
 
+**Agent / CloudPebble handover:** see [HANDOVER.md](HANDOVER.md). Work on branch `cursor/emery-time2-layout-1675`, not `main`.
+
 ### Building from Source
 
 This is a Pebble SDK 3 project. First install the [Pebble SDK](https://developer.repebble.com/sdk/)

@@ -1,0 +1,11 @@
+---
+description: Trein (Stef) Pebble Time 2 — branch, CloudPebble, layout and OVER/VERTREK rules
+alwaysApply: true
+---
+
+Read `HANDOVER.md` before changing this app.
+
+- Work on `cursor/emery-time2-layout-1675`, not `main`. Do not merge upstream unless Stef asks.
+- Push to GitHub; Stef installs via CloudPebble Pull → Compile → Install and Run. Do not leave edits only in CloudPebble.
+- Emery/Time 2 layout only. OVER = real ORS duration (HeiGIT, query `api_key` + Authorization). No haversine OVER. VERTREK = planned departure; red delay **under** the clock. Aankomst = train on VAN platform. Chrome GOTHIC_24, thinner bars via padding. Bike profile `cycling-regular`.
+- Never commit NS/ORS keys. Never compile `TREIN_LAYOUT_FIXTURE>=0` into a watch/CloudPebble build.
