@@ -242,7 +242,6 @@ function sendRouteError(code) {
 var orsPendingCallbacks = [];
 var orsTimeoutHandle = null;
 var ORS_HOSTS = [
-  "https://api.openrouteservice.org/v2/directions/",
   "https://api.heigit.org/openrouteservice/v2/directions/"
 ];
 function fetchOrsDuration(lat, lng, dest, profile, callback) {
@@ -346,9 +345,11 @@ function fetchOrsDuration(lat, lng, dest, profile, callback) {
     xhr.onerror = handleResponse;
     xhr.send(JSON.stringify({
       coordinates: [[lng, lat], [dest.lng, dest.lat]],
-      instructions: false,
-      geometry: false,
-      elevation: false
+      elevation: "false",
+      geometry: "false",
+      geometry_simplify: "true",
+      preference: "recommended",
+      units: "km"
     }));
   }
 
@@ -382,7 +383,8 @@ function runRouteFrom(lat, lng, vervoer, force) {
     sendRouteToWatch(cachedDurationMin, false);
     return;
   }
-  console.log("runRouteFrom: calling ORS " + (vervoer === 1 ? "bike" : "walk") + " dist=" + distM + "m");
+  console.log("runRouteFrom: calling ORS " + (vervoer === 1 ? "cycling-regular" : "foot-walking") + " dist=" + distM + "m");
+  /* cycling-regular: fietspaden/woon-fiets. cycling-road is racefiets (rijbaan i.p.v. fietspad). */
   fetchOrsDuration(lat, lng, dest, vervoer === 1 ? "cycling-regular" : "foot-walking", function(mins, err) {
     if (mins != null) sendRouteToWatch(mins, false);
     else if (err) sendRouteError(err);
