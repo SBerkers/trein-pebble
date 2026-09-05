@@ -1103,7 +1103,7 @@ function processTripData(data) {
     }
     
     trips.push(cand);
-    if (trips.length >= 5) break;
+    if (trips.length >= 10) break;
   }
   
   if (!trips.length) {
